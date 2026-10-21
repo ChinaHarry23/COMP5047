@@ -1,0 +1,15 @@
+scenario force-sensor chatter: the debouncer and the floor rule hold
+boot
+within 9 state == DARK_IDLE
+chatter 5 60                   # toggling every 30 ms: never stable for 100 ms
+expect present == 0
+expect level == 0
+hand 1
+wait 3
+chatter 5 60
+expect present == 1
+expect state == LIT
+chatter 8 300                  # slower chatter gets through: lit/fading cycles
+hand 0
+wait 6
+expect level == 0

@@ -1,0 +1,19 @@
+scenario selector turned mid-night: ignored until the next new night
+boot
+within 9 state == DARK_IDLE
+expect source == LIVE
+remember budget
+selector clear
+wait 5
+expect source == LIVE
+expect budget == @budget
+press night
+within 6 state == DARK_IDLE
+expect source == RECORDED
+expect sky_c == 0.008
+expect budget > @budget        # a clear recorded night: a bigger budget
+selector overcast
+press night
+within 6 state == DARK_IDLE
+expect source == RECORDED
+expect sky_c == 0.958

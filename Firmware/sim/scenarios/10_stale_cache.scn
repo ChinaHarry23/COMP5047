@@ -1,0 +1,11 @@
+scenario Wi-Fi up but the API down, cache 30 h old: protective sky, C = 1 (TP8)
+# SNTP sets the clock while the radio is up, so the cache's age is known: stale.
+net api_down
+cache stale
+boot
+within 9 state == DARK_IDLE
+expect clock == 1
+expect source == PROTECTIVE
+expect why == stale
+expect sky_c == 1
+expect budget < 20.1           # B_max / 3

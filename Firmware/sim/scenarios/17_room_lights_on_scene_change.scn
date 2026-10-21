@@ -1,0 +1,21 @@
+scenario room lights switched on and left on: YIELD, then a scene change after 30 s (TP15)
+room 0
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 3
+room 20 white                  # lights on: a big broadband rise at the bat
+within 1.0 level <= floor
+expect state == YIELD
+expect level == floor
+wait 29
+expect state == YIELD
+expect pending > 0             # held aside: it might still be another light
+within 1.5 state == LIT        # 30 s rule: re-baselined, the room is the room again (I9)
+expect scene_changes == 1
+expect event_fmm == 0          # the room's light was not charged; only the floor was
+expect pending == 0
+expect remaining > 0
+wait 3
+expect state == LIT
+expect events == 1

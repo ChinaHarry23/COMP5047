@@ -1,0 +1,17 @@
+scenario cache saved without a date: protective sky, C = 1, even once the clock is known
+# A cache saved before the clock was known (no Date header, no SNTP).
+net down
+cache unknown_age
+boot
+within 9 state == DARK_IDLE
+expect source == PROTECTIVE
+expect sky_c == 1
+# Radio up and SNTP answering, only the API down: the clock is known now,
+# but the cache itself has no date, so its age is still unknown.
+net api_down
+boot
+within 9 state == DARK_IDLE
+expect clock == 1
+expect source == PROTECTIVE
+expect why == age-unknown
+expect sky_c == 1

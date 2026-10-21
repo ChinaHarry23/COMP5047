@@ -1,0 +1,8 @@
+scenario a hand already on the mark at boot: learning refused, presence still works
+hand 1
+boot
+within 9 state == LIT          # default thresholds; lit as soon as startup ends
+hand 0
+within 6 state == DARK_IDLE
+hand 1
+within 0.15 state == LIT

@@ -1,0 +1,25 @@
+scenario one visit: fade up in 1.5 s, needle falls, 5 s fade out, needle holds
+# Fades run at fixed full-scale rates, so TP3's 1.5 s / 5 s are timed from
+# maximum. A clear recorded night keeps the lamp near maximum for the visit.
+selector clear
+boot
+within 9 state == DARK_IDLE
+remember needle
+hand 1
+within 0.15 state == LIT      # F1: under 150 ms including the 100 ms debounce
+wait 1.2
+expect level <= 0.85          # not faster than the 1.5 s fade (0.83 of the way at 1.2 s)
+within 0.4 level >= 0.9       # ... and not slower
+wait 3
+expect needle < @needle       # needle falls as the dose is spent
+expect spent > 0
+hand 0
+within 0.15 state == FADING
+wait 4.0
+expect level > 0.05           # not faster than the 5 s fade (from about 0.9 it takes 4.5 s)
+wait 1.1
+expect level == 0             # ... and dark 5.1 s after the hand left (I2 checks every step)
+expect state == DARK_IDLE
+remember needle
+wait 20
+expect needle == @needle      # nothing is given back

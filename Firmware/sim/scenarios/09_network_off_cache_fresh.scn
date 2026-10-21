@@ -1,0 +1,15 @@
+scenario power-up with the network off and a 2 h old cache: no clock, so protective (TP7)
+# The board has no battery-backed clock. With no hotspot there is neither
+# SNTP nor a server's Date header, so the cache's age is unknown: C = 1 and
+# the operator LED blinks amber. TP7's "cache used" cannot pass after a power
+# cycle with the network off unless an RTC is added; 24 and 29 show when it can.
+net down
+cache fresh
+boot
+wait 4.9
+expect budget_set == 0         # still inside the 5 s cap
+within 9 state == DARK_IDLE
+expect clock == 0
+expect source == PROTECTIVE
+expect why == age-unknown
+expect sky_c == 1

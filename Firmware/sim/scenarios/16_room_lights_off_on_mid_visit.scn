@@ -1,0 +1,14 @@
+scenario room lights off then on again mid-visit: no false YIELD, lamp still measured
+room 3 white                   # room light reaching the bat inside the hood
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 4
+room 0                         # lights off
+wait 5
+expect state == LIT
+expect lamp_lux > 0.5
+room 3                         # lights back on: same as the learned room
+wait 3
+expect state == LIT
+expect events == 0

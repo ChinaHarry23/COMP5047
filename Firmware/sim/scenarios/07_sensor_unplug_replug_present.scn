@@ -1,0 +1,18 @@
+scenario bat sensor unplugged and replugged while someone is present
+selector clear
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 5
+remember spent
+sensor 0
+within 1.3 state == FAULT      # 1 s without a valid frame
+expect level >= floor
+wait 3
+expect level == floor          # FAULT: floor while present, never below
+expect needle == 2             # parked on the FAULT tick
+expect spent > @spent          # the lamp is still charged while the sensor is gone
+sensor 1
+within 1.4 state == LIT        # clears 1 s after the first good frame (I5)
+wait 2
+expect level > floor

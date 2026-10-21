@@ -1,0 +1,15 @@
+scenario leave during the pull-back: the fade-out starts from wherever the light is
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 8
+expect level < 0.9
+expect level > floor
+hand 0
+within 0.15 state == FADING
+wait 2
+expect level > 0
+expect level < floor          # crossing the floor is fine once the hand has gone
+wait 3.1
+expect level == 0
+expect state == DARK_IDLE

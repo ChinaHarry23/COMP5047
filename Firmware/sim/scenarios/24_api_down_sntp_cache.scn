@@ -1,0 +1,16 @@
+scenario Wi-Fi up but the API down: SNTP dates the clock, the 2 h cache is used within 5 s (TP7)
+net api_down
+cache fresh
+boot
+within 5 source == CACHED      # the fetch task waited for SNTP, then gave up on the API
+expect clock == 1
+within 9 state == DARK_IDLE
+expect sky_c == 0.958
+# SNTP slower than the cap (lwIP waits a random 0-5 s before asking): no
+# clock in time, so the cache's age is unknown.
+sntp 6
+boot
+within 9 state == DARK_IDLE
+expect clock == 0
+expect source == PROTECTIVE
+expect why == age-unknown

@@ -1,0 +1,12 @@
+scenario Open-Meteo answers with an error object: treated as a failed fetch
+# The error answer still carries a Date header: the clock is set.
+net error
+cache fresh
+boot
+within 9 state == DARK_IDLE
+expect source == CACHED
+net error
+cache none
+boot
+within 9 state == DARK_IDLE
+expect source == PROTECTIVE

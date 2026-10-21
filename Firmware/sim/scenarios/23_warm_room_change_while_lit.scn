@@ -1,0 +1,13 @@
+scenario warm-white room dims while lit: near-collinear leak, invariants still hold
+room 5 warm
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 3
+room 3.5 warm                  # lights dimmed 30%: part of the change leaks into the lamp estimate
+wait 5
+expect state == LIT
+expect events == 0
+hand 0
+wait 6
+expect level == 0

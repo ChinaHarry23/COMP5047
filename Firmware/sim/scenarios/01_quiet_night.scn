@@ -1,0 +1,14 @@
+scenario quiet night: nobody comes, the lamp stays dark, nothing is spent
+# Defaults: live fetch answers (captured 5 Oct response, overcast evening) and
+# its Date header sets the clock; no cache, selector LIVE, sensor connected,
+# room dark.
+boot
+expect state == STARTUP
+within 9 state == DARK_IDLE
+expect source == LIVE
+expect sky_c == 0.958
+wait 60
+expect state == DARK_IDLE
+expect level == 0
+expect spent == 0
+expect needle > 30            # outer arc, above the zero mark

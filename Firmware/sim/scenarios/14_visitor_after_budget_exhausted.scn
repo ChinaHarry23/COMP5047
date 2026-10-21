@@ -1,0 +1,15 @@
+scenario a new visitor after the budget is spent gets the floor, not darkness
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 40
+hand 0
+within 6 state == DARK_IDLE
+remember remaining
+wait 5
+hand 1
+within 1.5 level == floor
+wait 3
+expect level == floor
+expect state == LIT
+expect remaining < @remaining  # the floor still costs the bat

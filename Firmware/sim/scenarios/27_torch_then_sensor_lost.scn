@@ -1,0 +1,15 @@
+scenario bat sensor lost during a torch event: YIELD holds until FAULT, never above the floor
+selector clear
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 3
+torch 5
+within 1.0 state == YIELD
+sensor 0                       # the driver reports the chip lost at once
+wait 0.5
+expect state == YIELD          # the last valid reading still says another light is there
+expect level == floor
+within 1.0 state == FAULT
+expect level == floor
+expect event_fmm > 0           # the event ended with the sensor: what was measured is charged

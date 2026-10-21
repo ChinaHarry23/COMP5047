@@ -1,0 +1,16 @@
+scenario re-baseline button during a visit: YIELD clears at once, budget untouched
+selector clear
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 3
+torch 5
+within 1.0 state == YIELD
+remember budget
+press rebase                   # I8 checks the FSM's next step
+within 0.1 state == LIT        # TP15: the button clears YIELD in well under 3 s
+expect budget == @budget
+expect event_fmm == 0          # the button declared that light part of the room: not charged
+wait 3
+expect state == LIT            # the torch is now part of the learned room
+expect events == 1

@@ -1,0 +1,19 @@
+scenario torch on the bat with nobody there: YIELD in the dark, dose charged when it ends
+boot
+within 9 state == DARK_IDLE
+torch 8
+within 1.0 state == YIELD
+expect level == 0
+wait 2
+expect pending > 0             # the torch's dose is held aside while the event runs ...
+expect event_fmm == 0
+torch 0
+within 1.5 state == DARK_IDLE
+expect event_fmm > 0           # ... and charged once it ends (F6)
+expect pending == 0
+expect level == 0
+expect remaining < 0           # 8 lux of white light for 2 s outspends an overcast budget
+hand 1                         # a visitor afterwards still gets the path lit, at the floor
+within 0.2 state == LIT
+wait 2
+expect level == floor

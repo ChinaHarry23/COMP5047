@@ -1,0 +1,14 @@
+scenario a cloudier live answer after the 5 s cap, before the hand-over, still tightens B
+# The cache (2 h old, C = 0.958) is resolved at the cap. The live answer
+# arrives at 6 s, while the needle shows the sky; it is cloudier (synthetic
+# body, every sample 100%), so tighten-only takes it.
+net late
+cache fresh
+boot
+wait 5.5
+expect source == CACHED        # resolved at the cap from the cache
+expect budget_set == 0
+within 3 budget_set == 1
+expect source == LIVE
+expect sky_c == 1
+expect budget < 20.1           # B_max / 3, below the cached night's 20.5

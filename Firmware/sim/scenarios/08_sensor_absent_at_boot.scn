@@ -1,0 +1,15 @@
+scenario no bat sensor at boot: FAULT, no reboot loop, recovers when plugged in (TP1)
+sensor 0
+boot
+within 1.3 state == FAULT
+wait 8
+expect state == FAULT
+expect budget_set == 1         # the startup sequence still sizes the night
+expect needle == 2
+hand 1
+wait 1
+expect level == floor          # someone present: the floor, even in FAULT
+hand 0
+wait 1
+sensor 1
+within 2.0 state == DARK_IDLE  # TP1: recovery under 2 s

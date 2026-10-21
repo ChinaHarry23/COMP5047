@@ -1,0 +1,15 @@
+scenario room lights switched on and left on with nobody there: budget unchanged (TP15)
+room 0
+boot
+within 9 state == DARK_IDLE
+remember remaining
+room 20 white
+within 1.0 state == YIELD
+expect level == 0
+wait 29
+expect pending > 0             # held aside while it might still be another light
+within 1.5 state == DARK_IDLE  # 30 s: a scene change, the room is the room again
+expect scene_changes == 1
+expect remaining == @remaining # nothing was charged for the room's own light
+expect event_fmm == 0
+expect pending == 0

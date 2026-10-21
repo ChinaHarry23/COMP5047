@@ -1,0 +1,20 @@
+scenario long hold: the light pulls back to the floor, never below, then counts past zero
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 2
+expect level >= 0.9
+wait 8
+expect level < 0.85           # the pull-back is visible
+expect level > floor
+wait 30
+expect level == floor         # budget spent: the floor, not darkness
+expect remaining < 0
+expect needle < 30            # inside the past-zero sector
+remember needle
+wait 10
+expect needle < @needle       # the floor's dose keeps counting
+expect state == LIT
+hand 0
+wait 6
+expect level == 0

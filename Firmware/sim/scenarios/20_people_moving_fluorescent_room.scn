@@ -1,0 +1,11 @@
+scenario fluorescent room, people moving in front, lamp off: no dose accrues (TP11)
+room 3 fluor
+wobble 0.1                     # +/-10% as people pass
+boot
+within 9 state == DARK_IDLE
+wait 60
+expect spent == 0
+expect events == 0
+hand 1
+wait 3
+expect lamp_lux > 3            # the lamp is still measured against the fluorescent room

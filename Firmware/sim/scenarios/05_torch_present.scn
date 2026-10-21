@@ -1,0 +1,21 @@
+scenario torch on the bat with a hand on: floor within 1 s, dose charged, returns lower
+# REC-CLEAR gives a large budget so the lamp is still well above the floor.
+selector clear
+boot
+within 9 state == DARK_IDLE
+expect source == RECORDED
+hand 1
+wait 6
+remember level
+expect level > 0.8
+torch 5                        # 5 lux of cool-white light at the bat
+within 1.0 level <= floor      # TP6
+expect state == YIELD
+expect level == floor          # nothing above the floor, and never below it
+wait 0.5
+torch 0
+within 2.5 state == LIT
+expect event_fmm > 0           # the torch's V'-proxy dose was charged
+wait 2
+expect level < @level          # the lamp comes back lower than before
+expect level >= floor

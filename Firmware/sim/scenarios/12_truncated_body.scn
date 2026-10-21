@@ -1,0 +1,14 @@
+scenario truncated HTTP body: rejected, never half-read; falls back to cache or C = 1
+net truncated
+boot
+within 9 state == DARK_IDLE
+expect source == PROTECTIVE
+expect sky_c == 1
+# The broken answer still carried a Date header, so the clock is set and a
+# 2 h old cache can be used.
+cache fresh
+boot
+within 9 state == DARK_IDLE
+expect clock == 1
+expect source == CACHED
+expect sky_c == 0.958

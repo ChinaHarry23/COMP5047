@@ -1,0 +1,15 @@
+scenario new night pressed during a visit: the light never drops below the floor
+boot
+within 9 state == DARK_IDLE
+hand 1
+wait 30
+expect level == floor
+expect remaining < 0
+press night
+expect state == STARTUP
+wait 1
+expect level == floor          # STARTUP asks for dark, the floor rule holds the floor
+within 6 state == LIT
+expect remaining > 15          # tonight's budget is fresh
+wait 2
+expect level > 0.8

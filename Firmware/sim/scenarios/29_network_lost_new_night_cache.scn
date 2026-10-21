@@ -1,0 +1,10 @@
+scenario network lost after a good boot: a new night uses the dated cache (TP7 without a power cycle)
+boot                           # the live answer's Date header sets the clock and dates the cache
+within 9 state == DARK_IDLE
+expect source == LIVE
+expect clock == 1
+net down
+press night
+within 5.1 source == CACHED
+within 9 state == DARK_IDLE
+expect sky_c == 0.958
