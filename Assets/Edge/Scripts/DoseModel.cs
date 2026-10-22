@@ -65,5 +65,12 @@ namespace Edge
             VirtualFmm += photLux * EdgeConfig.SpAmber / EdgeConfig.FmmScotLux
                           * (EdgeConfig.TimeCompression / 60f) * dt;
         }
+
+        // Zero virtual-lamp dose only. RealFmm (tag) is left alone so a session
+        // round can start from the same virtual night without touching UDP.
+        public void ClearVirtualExposure()
+        {
+            VirtualFmm = 0f;
+        }
     }
 }

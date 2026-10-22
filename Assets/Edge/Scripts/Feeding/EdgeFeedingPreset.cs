@@ -13,6 +13,7 @@ namespace Edge.Feeding
         [TextArea] public string endMessage = "";
 
         [Header("Round")]
+        [Tooltip("Unused while EdgeFeedingGame.roundSeconds is set (exhibit default 75s).")]
         public float roundSeconds = 90f;
         [Tooltip("Hunger 0..1 lost per second")] public float hungerDrainPerSec = 0.022f;
         [Tooltip("Hunger regained per insect")] public float hungerPerInsect = 0.06f;

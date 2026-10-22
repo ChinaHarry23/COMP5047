@@ -5,23 +5,54 @@ using UnityEngine.InputSystem;
 
 namespace Edge.Feeding
 {
-    // Mini insect-feeding game with two variants (light-tolerant / light-averse bat).
-    // Moths: pooled structs, dark HDRP/Lit, drawn with Graphics.RenderMeshInstanced; no GameObjects,
-    // no Rigidbodies. Lamps are found from LampZone components (fallback: Light components).
-    // Keys: Space/Enter start, 1/2 variant, R restart, E echolocation ping, H full debug HUD.
+    // Mini insect-feeding game. Default exhibit is a two-round session:
+    // Round 1 light-tolerant, then Round 2 light-averse (Gould's long-eared bat)
+    // on the same night (same moth field, lamps, starting hunger). Keys 1/2 still
+    // start a single-variant debug round. Moths: pooled structs, dark HDRP/Lit,
+    // drawn with Graphics.RenderMeshInstanced; no GameObjects, no Rigidbodies.
+    // Lamps are found from LampZone components (fallback: Light components).
+    // Keys: Space/Enter start session (or skip interstitial), 1/2 debug variant,
+    // R restart session, E echolocation ping, H full debug HUD.
     public class EdgeFeedingGame : MonoBehaviour
     {
         public enum Variant { LightTolerant, LightAverse }
-        public enum State { StartScreen, Playing, Ended }
+        public enum State { StartScreen, Playing, Interstitial, Ended, SessionResults }
+
+        [Serializable]
+        public struct RoundStats
+        {
+            public Variant variant;
+            public int roundIndex;
+            public int mothsEaten;
+            public float hungerLeft;
+            public float pctTimeInLight;
+            public float timeInLightSeconds;
+            public float timeInDarkSeconds;
+            public string endReason;
+        }
 
         public Variant variant = Variant.LightAverse;
         public EdgeFeedingPreset tolerantPreset;
         public EdgeFeedingPreset aversePreset;
         public bool showStartScreen = true;
 
+        [Header("Session")]
+        [Tooltip("Seconds per feeding round (session and single-variant). Overrides the preset.")]
+        public float roundSeconds = 75f;
+        [Tooltip("Pause between session rounds before auto-starting Round 2.")]
+        public float interstitialSeconds = 3f;
+        [TextArea(2, 4)]
+        public string interstitialText = "Now fly as Gould's long-eared bat - same night, same lamps.";
+        public const string DefaultSessionResultsMessage =
+            "Same night. Unequal feast.\n\nStreet lights draw insects into lit zones. Light-tolerant bats feed there. Light-averse species like Gould's long-eared bat lose those feeding grounds.";
+        [Tooltip("First line is the headline; the rest is the body. Edit here.")]
+        [TextArea(5, 12)]
+        public string sessionResultsMessage = DefaultSessionResultsMessage;
+
         [Header("Scene refs (auto-found if empty)")]
         public BatFlightController flight;
         public UdpLink link;
+        public DoseModel dose;
         public LampZone[] lamps;
         public EdgeHud exhibitHud;
 
@@ -44,12 +75,18 @@ namespace Edge.Feeding
         public Key debugHudKey = Key.H;
         public float hintFadeSeconds = 3f;
 
-        // Hooks (e.g. EdgeNarrator). Optional; nothing subscribes by default.
+        // Hooks (e.g. EdgeNarrator). Optional; nothing required to subscribe.
         public event Action<int> InsectEaten;
-        public event Action<Variant, int, string> RoundEnded;
-        public event Action<Variant> RoundStarted;
+        public event Action<Variant, int> RoundStarted;
+        public event Action<RoundStats> RoundEnded;
+        public event Action<RoundStats, RoundStats> SessionEnded;
 
         public State CurrentState { get; private set; }
+        public bool SessionMode { get; private set; }
+        public int RoundIndex { get; private set; } = 1;
+        public RoundStats LastRound { get; private set; }
+        public RoundStats SessionRound1 { get; private set; }
+        public RoundStats SessionRound2 { get; private set; }
         public int Score { get; private set; }
         public float Hunger01 { get; private set; }
         public float TimeLeft { get; private set; }
@@ -59,6 +96,8 @@ namespace Edge.Feeding
         public string EndReason { get; private set; } = "";
         public bool DebugHud { get; private set; }
         public EdgeFeedingPreset Preset => variant == Variant.LightTolerant ? tolerantPreset : aversePreset;
+
+        public static string SpeciesKey(Variant v) => v == Variant.LightTolerant ? "light-tolerant" : "light-averse";
 
         struct Insect
         {
@@ -81,7 +120,18 @@ namespace Edge.Feeding
         AudioClip _crunch;
         Vector3 _startPos, _pathMin, _pathMax;
         float _startHeading, _budgetFmm, _vibUntil, _bestTolerant, _bestAverse, _playStart, _lastPing = -100f;
-        readonly System.Random _rng = new System.Random(5047);
+        System.Random _rng = new System.Random(5047);
+
+        // Same-night snapshot so both session rounds share moths / hunger / count.
+        bool _useNightSpawn;
+        int _nightSeed = 5047;
+        int _nightInsectCount;
+        float _nightStartHunger;
+        float _nightLampShare;
+        float _nightDarkSpread;
+        Vector2 _nightDarkHeight;
+        Vector2 _nightOrbit;
+        float _timeInLight, _timeInDark, _interstitialAt;
 
         void Awake()
         {
@@ -89,6 +139,7 @@ namespace Edge.Feeding
             if (!aversePreset) aversePreset = EdgeFeedingPreset.CreateAverse();
             if (!flight) flight = FindAnyObjectByType<BatFlightController>();
             if (!link && flight) link = flight.link;
+            if (!dose) dose = FindAnyObjectByType<DoseModel>();
             if (lamps == null || lamps.Length == 0) lamps = FindObjectsByType<LampZone>();
             if (!exhibitHud) exhibitHud = FindAnyObjectByType<EdgeHud>();
         }
@@ -100,7 +151,7 @@ namespace Edge.Feeding
             BuildVisuals();
             BuildAudio();
             if (showStartScreen) { CurrentState = State.StartScreen; ApplyFlightMods(false); SpawnAll(); ApplyHud(); }
-            else Restart();
+            else StartSession();
         }
 
         void OnEnable() { if (flight) flight.Bumped += OnBumped; }
@@ -194,21 +245,27 @@ namespace Edge.Feeding
         float Rand(float a, float b) => a + (float)_rng.NextDouble() * (b - a);
         Vector3 InUnitSphere() { Vector3 v; do v = new Vector3(Rand(-1, 1), Rand(-1, 1), Rand(-1, 1)); while (v.sqrMagnitude > 1f); return v; }
 
+        float SpawnLampShare(EdgeFeedingPreset p) => _useNightSpawn ? _nightLampShare : p.lampShare;
+
         void SpawnAll()
         {
             var p = Preset;
-            _ins = new Insect[Mathf.Clamp(p.insectCount, 1, 300)];
+            int count = _useNightSpawn ? _nightInsectCount : p.insectCount;
+            _ins = new Insect[Mathf.Clamp(count, 1, 300)];
             for (int i = 0; i < _ins.Length; i++) Respawn(ref _ins[i], p);
         }
 
         void Respawn(ref Insect s, EdgeFeedingPreset p)
         {
-            bool lampIns = _lampHeads.Count > 0 && _rng.NextDouble() < p.lampShare;
+            bool lampIns = _lampHeads.Count > 0 && _rng.NextDouble() < SpawnLampShare(p);
+            Vector2 orbit = _useNightSpawn ? _nightOrbit : p.lampOrbitRadius;
+            float darkSpread = _useNightSpawn ? _nightDarkSpread : p.darkSpread;
+            Vector2 darkHeight = _useNightSpawn ? _nightDarkHeight : p.darkHeight;
             if (lampIns)
             {
                 s.lamp = _rng.Next(_lampHeads.Count);
                 s.anchor = _lampHeads[s.lamp];
-                s.orbitR = Rand(p.lampOrbitRadius.x, p.lampOrbitRadius.y);
+                s.orbitR = Rand(orbit.x, orbit.y);
                 s.orbitW = Rand(1.5f, 4f) * (_rng.NextDouble() < 0.5 ? -1f : 1f);  // rad/s, either direction
                 s.axis = (Vector3.up + InUnitSphere() * 0.8f).normalized;           // tilted orbit plane
                 s.pos = s.anchor + InUnitSphere().normalized * s.orbitR;
@@ -216,15 +273,15 @@ namespace Edge.Feeding
             else
             {
                 s.lamp = -1;
-                float x = Rand(_pathMin.x - p.darkSpread, _pathMax.x + p.darkSpread);
-                float z = Rand(_pathMin.z - p.darkSpread, _pathMax.z + p.darkSpread);
+                float x = Rand(_pathMin.x - darkSpread, _pathMax.x + darkSpread);
+                float z = Rand(_pathMin.z - darkSpread, _pathMax.z + darkSpread);
                 for (int k = 0; k < _lampHeads.Count; k++)
                 {
                     Vector3 d = new Vector3(x - _lampHeads[k].x, 0, z - _lampHeads[k].z);
                     if (d.sqrMagnitude < 64f) { d = d.sqrMagnitude < 0.01f ? Vector3.right : d.normalized; x = _lampHeads[k].x + d.x * 8f; z = _lampHeads[k].z + d.z * 8f; }
                 }
                 float groundY = Physics.Raycast(new Vector3(x, 200f, z), Vector3.down, out var hit, 400f) ? hit.point.y : _startPos.y - 1f;
-                s.anchor = new Vector3(x, groundY + Rand(p.darkHeight.x, p.darkHeight.y), z);
+                s.anchor = new Vector3(x, groundY + Rand(darkHeight.x, darkHeight.y), z);
                 s.pos = s.anchor + InUnitSphere();
             }
             s.vel = Vector3.zero;
@@ -234,43 +291,121 @@ namespace Edge.Feeding
         }
 
         // ---- flow --------------------------------------------------------------
-        public void SetVariant(Variant v) { variant = v; Restart(); }
-
-        public void Restart()
+        public void SetVariant(Variant v)
         {
+            variant = v;
+            StartSingleVariant();
+        }
+
+        // Inspector / old callers: R and the default exhibit restart the session.
+        public void Restart() => StartSession();
+
+        public void StartSession()
+        {
+            SessionMode = true;
+            variant = Variant.LightTolerant;
+            CaptureNight();
+            StartRound(1);
+        }
+
+        public void StartSingleVariant()
+        {
+            SessionMode = false;
+            _useNightSpawn = false;
+            StartRound(1);
+        }
+
+        void CaptureNight()
+        {
+            var p = tolerantPreset ? tolerantPreset : Preset;
+            _nightSeed = Environment.TickCount;
+            if (_nightSeed == 0) _nightSeed = 5047;
+            _nightInsectCount = p.insectCount;
+            _nightStartHunger = p.startHunger;
+            _nightLampShare = p.lampShare;
+            _nightDarkSpread = p.darkSpread;
+            _nightDarkHeight = p.darkHeight;
+            _nightOrbit = p.lampOrbitRadius;
+            _useNightSpawn = true;
+        }
+
+        void StartRound(int index)
+        {
+            RoundIndex = Mathf.Max(1, index);
+            if (SessionMode)
+                variant = RoundIndex == 1 ? Variant.LightTolerant : Variant.LightAverse;
+
             var p = Preset;
             Score = 0;
-            Hunger01 = p.startHunger;
-            TimeLeft = p.roundSeconds;
+            Hunger01 = _useNightSpawn ? _nightStartHunger : p.startHunger;
+            TimeLeft = Mathf.Max(1f, roundSeconds);
             _budgetFmm = p.budgetFmm;
             Budget01 = 1f;
             EndReason = "";
+            _timeInLight = 0f;
+            _timeInDark = 0f;
             _pops.Clear();
+            if (_useNightSpawn) _rng = new System.Random(_nightSeed);
+            if (SessionMode && dose) dose.ClearVirtualExposure();
             SpawnAll();
             if (flight) flight.ResetPose(_startPos, _startHeading);
             CurrentState = State.Playing;
             _playStart = Time.unscaledTime;
             ApplyFlightMods(true);
             ApplyHud();
-            RoundStarted?.Invoke(variant);
+            RoundStarted?.Invoke(variant, RoundIndex);
         }
 
         void End(string reason)
         {
-            CurrentState = State.Ended;
             EndReason = reason;
+            var stats = CaptureStats(reason);
+            LastRound = stats;
             if (variant == Variant.LightTolerant) _bestTolerant = Mathf.Max(_bestTolerant, Score);
             else _bestAverse = Mathf.Max(_bestAverse, Score);
+
+            if (SessionMode && RoundIndex == 1)
+            {
+                SessionRound1 = stats;
+                CurrentState = State.Interstitial;
+                _interstitialAt = Time.unscaledTime;
+            }
+            else if (SessionMode && RoundIndex == 2)
+            {
+                SessionRound2 = stats;
+                CurrentState = State.SessionResults;
+            }
+            else CurrentState = State.Ended;
+
             ApplyFlightMods(false);
             ApplyHud();
-            RoundEnded?.Invoke(variant, Score, reason);
+            RoundEnded?.Invoke(stats);
+            if (CurrentState == State.SessionResults)
+                SessionEnded?.Invoke(SessionRound1, SessionRound2);
+        }
+
+        RoundStats CaptureStats(string reason)
+        {
+            float lit = _timeInLight;
+            float dark = _timeInDark;
+            float total = lit + dark;
+            var s = new RoundStats();
+            s.variant = variant;
+            s.roundIndex = RoundIndex;
+            s.mothsEaten = Score;
+            s.hungerLeft = Hunger01;
+            s.timeInLightSeconds = lit;
+            s.timeInDarkSeconds = dark;
+            s.pctTimeInLight = total > 0.0001f ? 100f * lit / total : 0f;
+            s.endReason = reason ?? "";
+            return s;
         }
 
         void ApplyHud()
         {
             if (!exhibitHud) return;
             exhibitHud.compact = !DebugHud;
-            exhibitHud.hideBudget = !DebugHud && variant == Variant.LightTolerant;
+            exhibitHud.hideBudget = !DebugHud && (variant == Variant.LightTolerant || CurrentState != State.Playing);
         }
 
         void ApplyFlightMods(bool playing, bool restoreDefaults = false)
@@ -279,7 +414,8 @@ namespace Edge.Feeding
             var p = Preset;
             if (restoreDefaults || !playing)
             {
-                flight.speedMultiplier = restoreDefaults ? 1f : (CurrentState == State.Ended ? 0.4f : 1f);
+                bool linger = CurrentState == State.Ended || CurrentState == State.Interstitial || CurrentState == State.SessionResults;
+                flight.speedMultiplier = restoreDefaults ? 1f : (linger ? 0.4f : 1f);
                 flight.extraInstability01 = 0f;
                 flight.extraVib01 = 0f;
                 flight.ignoreDoseInstability = false;
@@ -287,6 +423,14 @@ namespace Edge.Feeding
             }
             flight.speedMultiplier = p.speedMultiplier;
             flight.ignoreDoseInstability = p.ignoreDoseInstability;
+        }
+
+        void HandleConfirm()
+        {
+            if (CurrentState == State.Playing) return;
+            if (CurrentState == State.Interstitial) StartRound(2);
+            else if (CurrentState == State.Ended) StartSingleVariant();
+            else StartSession();
         }
 
         // ---- update ------------------------------------------------------------
@@ -297,13 +441,13 @@ namespace Edge.Feeding
             {
                 if (kb.digit1Key.wasPressedThisFrame) SetVariant(Variant.LightTolerant);
                 if (kb.digit2Key.wasPressedThisFrame) SetVariant(Variant.LightAverse);
-                if (kb.rKey.wasPressedThisFrame) Restart();
-                if (CurrentState != State.Playing && (kb.spaceKey.wasPressedThisFrame || kb.enterKey.wasPressedThisFrame)) Restart();
+                if (kb.rKey.wasPressedThisFrame) StartSession();
+                if (kb.spaceKey.wasPressedThisFrame || kb.enterKey.wasPressedThisFrame) HandleConfirm();
                 if (kb[debugHudKey].wasPressedThisFrame) { DebugHud = !DebugHud; ApplyHud(); }
                 if (kb[echoKey].wasPressedThisFrame && Preset.EchoEnabled) _lastPing = Time.time;
             }
             var gp = Gamepad.current;
-            if (gp != null && CurrentState != State.Playing && gp.startButton.wasPressedThisFrame) Restart();
+            if (gp != null && CurrentState != State.Playing && gp.startButton.wasPressedThisFrame) HandleConfirm();
 
             var pr = Preset;
             if (CurrentState == State.Playing && pr.EchoEnabled && pr.echoInterval > 0f && Time.time - _lastPing >= pr.echoInterval)
@@ -312,6 +456,8 @@ namespace Edge.Feeding
             float dt = Time.deltaTime;
             Simulate(dt);
             if (CurrentState == State.Playing) Tick(dt);
+            if (CurrentState == State.Interstitial && Time.unscaledTime - _interstitialAt >= Mathf.Max(0f, interstitialSeconds))
+                StartRound(2);
             Draw();
         }
 
@@ -332,6 +478,8 @@ namespace Edge.Feeding
             }
             LuxAtBat = lux;
             InLight = lux >= p.litLuxThreshold;
+            if (InLight) _timeInLight += dt;
+            else _timeInDark += dt;
 
             float vib = 0f;
             if (p.lightHurts)
@@ -469,7 +617,7 @@ namespace Edge.Feeding
         }
 
         // ---- HUD ---------------------------------------------------------------
-        GUIStyle _big, _wrap, _small;
+        GUIStyle _big, _wrap, _small, _left, _colHead;
 
         void OnGUI()
         {
@@ -478,6 +626,8 @@ namespace Edge.Feeding
                 _big = new GUIStyle(GUI.skin.label) { fontSize = 24, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = true };
                 _wrap = new GUIStyle(GUI.skin.label) { wordWrap = true, alignment = TextAnchor.UpperCenter, fontSize = 15 };
                 _small = new GUIStyle(GUI.skin.label) { fontSize = 12, alignment = TextAnchor.MiddleRight };
+                _left = new GUIStyle(GUI.skin.label) { wordWrap = true, alignment = TextAnchor.UpperLeft, fontSize = 15 };
+                _colHead = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold, alignment = TextAnchor.UpperCenter, wordWrap = true };
             }
             var p = Preset;
             Texture2D white = Texture2D.whiteTexture;
@@ -485,7 +635,10 @@ namespace Edge.Feeding
             // compact cluster, top-right
             const float w = 180f;
             float x = Screen.width - w - 16f, y = 14f;
-            GUI.Label(new Rect(x, y, w, 20f), $"{Score}  ·  {Mathf.CeilToInt(TimeLeft)}s", _small);
+            string clock = SessionMode && CurrentState == State.Playing
+                ? $"{Score}  ·  {Mathf.CeilToInt(TimeLeft)}s  ·  {RoundIndex}/2"
+                : $"{Score}  ·  {Mathf.CeilToInt(TimeLeft)}s";
+            GUI.Label(new Rect(x, y, w, 20f), clock, _small);
             y += 20f;
             Bar(new Rect(x, y, w, 6f), Hunger01, new Color(0.45f, 0.9f, 0.45f), white);
             if (p.lightHurts)
@@ -495,8 +648,8 @@ namespace Edge.Feeding
             }
 
             if (DebugHud)
-                GUI.Label(new Rect(x - 260f, y + 12f, w + 260f, 60f),
-                    $"{p.displayName} | lux {LuxAtBat:F2} {(InLight ? "LIT" : "dark")} | hunger {Hunger01 * 100f:F0}% budget {Budget01 * 100f:F0}%\n[1][2] variant  [R] restart  [E] ping  [H] HUD", _small);
+                GUI.Label(new Rect(x - 280f, y + 12f, w + 280f, 72f),
+                    $"{p.displayName} | {(SessionMode ? "session" : "debug")} r{RoundIndex} | lux {LuxAtBat:F2} {(InLight ? "LIT" : "dark")} | hunger {Hunger01 * 100f:F0}% budget {Budget01 * 100f:F0}%\n[1][2] debug variant  [R] session  [E] ping  [H] HUD", _small);
 
             if (CurrentState == State.Playing)
             {
@@ -504,31 +657,117 @@ namespace Edge.Feeding
                 if (age < hintFadeSeconds)
                 {
                     GUI.color = new Color(1f, 1f, 1f, 1f - age / hintFadeSeconds);
+                    string extra = SessionMode ? $"   ·   round {RoundIndex}/2" : "";
                     GUI.Label(new Rect(0f, Screen.height - 60f, Screen.width, 24f),
-                        $"{p.displayName} — fly through moths to eat" + (p.EchoEnabled ? "   ·   E: echolocate" : ""), _wrap);
+                        $"{p.displayName} — fly through moths to eat" + (p.EchoEnabled ? "   ·   E: echolocate" : "") + extra, _wrap);
                     GUI.color = Color.white;
                 }
                 return;
             }
 
-            Rect panel = new Rect(Screen.width * 0.5f - 300f, Screen.height * 0.5f - 110f, 600f, 220f);
+            if (CurrentState == State.Interstitial)
+            {
+                DrawCard(520f, 180f, white);
+                Rect panel = CardRect(520f, 180f);
+                GUI.Label(new Rect(panel.x, panel.y + 18f, panel.width, 40f), "Same night", _big);
+                GUI.Label(new Rect(panel.x + 24f, panel.y + 68f, panel.width - 48f, 90f),
+                    $"{interstitialText}\n\nSPACE to fly now", _wrap);
+                return;
+            }
+
+            if (CurrentState == State.SessionResults)
+            {
+                DrawSessionResults(white);
+                return;
+            }
+
+            Rect startPanel = new Rect(Screen.width * 0.5f - 300f, Screen.height * 0.5f - 130f, 600f, 260f);
             GUI.color = new Color(0f, 0f, 0f, 0.7f);
-            GUI.DrawTexture(panel, white);
+            GUI.DrawTexture(startPanel, white);
             GUI.color = Color.white;
             if (CurrentState == State.StartScreen)
             {
-                GUI.Label(new Rect(panel.x, panel.y + 15f, panel.width, 36f), "Night Feeding", _big);
-                GUI.Label(new Rect(panel.x + 30f, panel.y + 60f, panel.width - 60f, 150f),
-                    $"{p.speciesBlurb}\n\nFly through moths to eat before hunger runs out.\n" +
-                    "[1] light-tolerant   [2] light-averse   [R] restart   [E] echolocate   [H] HUD\n\n" +
-                    "SPACE / ENTER to start", _wrap);
+                GUI.Label(new Rect(startPanel.x, startPanel.y + 15f, startPanel.width, 36f), "Night Feeding", _big);
+                GUI.Label(new Rect(startPanel.x + 30f, startPanel.y + 56f, startPanel.width - 60f, 190f),
+                    "Two flights, one night. First a light-tolerant bat, then Gould's long-eared bat.\n\n" +
+                    "Fly through moths to eat before energy runs out.\n" +
+                    "SPACE / ENTER to start the session\n" +
+                    "[1] / [2] one variant (debug)   [R] restart session   [E] echolocate   [H] HUD", _wrap);
             }
             else
             {
-                GUI.Label(new Rect(panel.x, panel.y + 30f, panel.width, 40f), $"{Score} insects", _big);
-                GUI.Label(new Rect(panel.x + 30f, panel.y + 85f, panel.width - 60f, 120f),
-                    $"{p.endMessage}\n\nSPACE replay   ·   1 / 2 switch bat", _wrap);
+                GUI.Label(new Rect(startPanel.x, startPanel.y + 30f, startPanel.width, 40f), $"{Score} insects", _big);
+                GUI.Label(new Rect(startPanel.x + 30f, startPanel.y + 85f, startPanel.width - 60f, 120f),
+                    $"{p.endMessage}\n\nSPACE replay this bat   ·   R session   ·   1 / 2 switch bat", _wrap);
             }
+        }
+
+        void DrawSessionResults(Texture2D white)
+        {
+            float pw = Mathf.Min(760f, Screen.width - 40f);
+            float ph = Mathf.Min(460f, Screen.height - 40f);
+            Rect panel = new Rect((Screen.width - pw) * 0.5f, (Screen.height - ph) * 0.5f, pw, ph);
+            GUI.color = new Color(0f, 0f, 0f, 0.7f);
+            GUI.DrawTexture(panel, white);
+            GUI.color = Color.white;
+
+            string headline, body;
+            SplitHeadline(sessionResultsMessage, out headline, out body);
+            if (string.IsNullOrEmpty(headline)) headline = "Same night. Unequal feast.";
+
+            float y = panel.y + 12f;
+            GUI.Label(new Rect(panel.x + 16f, y, panel.width - 32f, 36f), headline, _big);
+            y += 40f;
+
+            float colW = (panel.width - 56f) * 0.5f;
+            float colX0 = panel.x + 20f;
+            float colX1 = panel.x + 36f + colW;
+            string tName = tolerantPreset ? tolerantPreset.displayName : "Light-tolerant bat";
+            string aName = aversePreset ? aversePreset.displayName : "Light-averse bat";
+            DrawStatColumn(new Rect(colX0, y, colW, 170f), tName, SessionRound1);
+            DrawStatColumn(new Rect(colX1, y, colW, 170f), aName, SessionRound2);
+            y += 176f;
+
+            if (!string.IsNullOrEmpty(body))
+                GUI.Label(new Rect(panel.x + 28f, y, panel.width - 56f, 110f), body, _wrap);
+            GUI.Label(new Rect(panel.x + 28f, panel.y + panel.height - 36f, panel.width - 56f, 24f),
+                "R restart session   ·   1 / 2 one variant (debug)", _wrap);
+        }
+
+        void DrawStatColumn(Rect r, string title, RoundStats s)
+        {
+            GUI.Label(new Rect(r.x, r.y, r.width, 28f), title, _colHead);
+            GUI.Label(new Rect(r.x + 8f, r.y + 32f, r.width - 16f, r.height - 32f),
+                $"Moths eaten          {s.mothsEaten}\n" +
+                $"Energy left          {s.hungerLeft * 100f:F0}%\n" +
+                $"Time in lamp light   {s.pctTimeInLight:F0}%\n" +
+                $"Pushed into dark     {s.timeInDarkSeconds:F0}s\n" +
+                $"{s.endReason}", _left);
+        }
+
+        void DrawCard(float pw, float ph, Texture2D white)
+        {
+            Rect panel = CardRect(pw, ph);
+            GUI.color = new Color(0f, 0f, 0f, 0.7f);
+            GUI.DrawTexture(panel, white);
+            GUI.color = Color.white;
+        }
+
+        static Rect CardRect(float pw, float ph)
+        {
+            return new Rect(Screen.width * 0.5f - pw * 0.5f, Screen.height * 0.5f - ph * 0.5f, pw, ph);
+        }
+
+        static void SplitHeadline(string text, out string headline, out string body)
+        {
+            headline = "";
+            body = "";
+            if (string.IsNullOrEmpty(text)) return;
+            text = text.Replace("\r\n", "\n").Replace('\r', '\n');
+            int i = text.IndexOf('\n');
+            if (i < 0) { headline = text.Trim(); return; }
+            headline = text.Substring(0, i).Trim();
+            body = text.Substring(i + 1).Trim();
         }
 
         static void Bar(Rect r, float v, Color c, Texture2D white)
