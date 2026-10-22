@@ -2,13 +2,15 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using Edge.Feeding;
 using UnityEngine;
 
 namespace Edge.Narration
 {
-    // AI narrator for the EDGE bat. Read-only observer: it samples DoseModel,
-    // the bat transform, LampZones and EdgeWeatherSky a few times a second (never
-    // per frame), detects meaningful context changes, and asks Gemini for one short
+    // AI narrator for the EDGE bat. Read-only observer: it samples DoseModel
+    // (or EdgeFeedingGame.Budget01 while a feeding round is playing), the bat
+    // transform, LampZones and EdgeWeatherSky a few times a second (never per
+    // frame), detects meaningful context changes, and asks Gemini for one short
     // documentary line. Any failure (no key, timeout, 429, offline) falls back to an
     // offline template chosen from the same context, so the demo never goes silent.
     // It never writes to the input path (UdpLink / BatFlightController).
@@ -22,6 +24,7 @@ namespace Edge.Narration
 
         [Header("Scene refs (auto-found if empty)")]
         public DoseModel dose;
+        public EdgeFeedingGame feeding;
         public BatFlightController flight;
         public Transform bat;
         public EdgeWeatherSky weather;
@@ -70,9 +73,10 @@ namespace Edge.Narration
         int _thresholdsHit;            // bitmask 75/50/25/10/spent
         int _lampInside = -1;          // id of lamp we are in, -1 = dark
         float _darkSince, _lastDarkLine;
-        float _prevTotal, _doseRatePctPerMin;
+        float _prevTotal, _doseRatePctPerMin, _prevFeedingSpent;
         float _prevSide;
         bool _crossedRecently;
+        bool _wasFeedingPlay;
         WeatherType _lastWeather;
         bool _haveWeather;
         Trigger _pending = Trigger.None;
@@ -102,6 +106,7 @@ namespace Edge.Narration
         void Awake()
         {
             if (!dose) dose = FindAnyObjectByType<DoseModel>();
+            if (!feeding) feeding = FindAnyObjectByType<EdgeFeedingGame>();
             if (!flight) flight = FindAnyObjectByType<BatFlightController>();
             if (!bat && flight) bat = flight.transform;
             if (!weather) weather = FindAnyObjectByType<EdgeWeatherSky>();
@@ -129,15 +134,57 @@ namespace Edge.Narration
 
         void OnEnable()
         {
+            if (!feeding) feeding = FindAnyObjectByType<EdgeFeedingGame>();
             if (weather) weather.WeatherApplied += OnWeather;
+            BindFeeding(true);
             StartCoroutine(SampleLoop());
         }
 
         void OnDisable()
         {
+            BindFeeding(false);
             if (weather) weather.WeatherApplied -= OnWeather;
             StopAllCoroutines();
             _voice?.Stop();
+        }
+
+        void BindFeeding(bool on)
+        {
+            if (!feeding) return;
+            if (on)
+            {
+                feeding.RoundStarted += OnFeedingRoundStarted;
+                feeding.RoundEnded += OnFeedingRoundEnded;
+                feeding.SessionEnded += OnFeedingSessionEnded;
+            }
+            else
+            {
+                feeding.RoundStarted -= OnFeedingRoundStarted;
+                feeding.RoundEnded -= OnFeedingRoundEnded;
+                feeding.SessionEnded -= OnFeedingSessionEnded;
+            }
+        }
+
+        void OnFeedingRoundStarted(EdgeFeedingGame.Variant variant, int roundIndex)
+        {
+            _thresholdsHit = 0;
+            _prevFeedingSpent = feeding ? 1f - feeding.Budget01 : 0f;
+            NotifyEvent($"round_start species={EdgeFeedingGame.SpeciesKey(variant)} round={roundIndex}");
+        }
+
+        void OnFeedingRoundEnded(EdgeFeedingGame.RoundStats stats)
+        {
+            NotifyEvent(
+                $"round_end species={EdgeFeedingGame.SpeciesKey(stats.variant)} moths={stats.mothsEaten} " +
+                $"hunger={stats.hungerLeft.ToString("0.00", CultureInfo.InvariantCulture)} " +
+                $"light_pct={stats.pctTimeInLight.ToString("0", CultureInfo.InvariantCulture)} " +
+                $"dark_s={stats.timeInDarkSeconds.ToString("0.0", CultureInfo.InvariantCulture)} " +
+                $"reason={stats.endReason}");
+        }
+
+        void OnFeedingSessionEnded(EdgeFeedingGame.RoundStats tolerant, EdgeFeedingGame.RoundStats averse)
+        {
+            NotifyEvent($"session_results tolerant={tolerant.mothsEaten} averse={averse.mothsEaten}");
         }
 
         void Start()
@@ -189,8 +236,27 @@ namespace Edge.Narration
             float now = Time.time;
             var s = new Snapshot { t = now - _t0, nearestId = -1, nearestDist = float.PositiveInfinity };
 
-            if (dose)
+            bool feedingPlay = feeding && feeding.CurrentState == EdgeFeedingGame.State.Playing;
+            if (feedingPlay)
             {
+                // HUD bar is EdgeFeedingGame.Budget01 while a round is live.
+                s.budgetLeftPct = Mathf.Clamp(feeding.Budget01 * 100f, 0f, 100f);
+                s.dosePct = 100f - s.budgetLeftPct;
+                if (dose) s.cloudC = dose.CloudC;
+                float spent = 1f - feeding.Budget01;
+                float ratePct = (spent - _prevFeedingSpent) / dt * 100f * 60f;
+                _doseRatePctPerMin = Mathf.Lerp(_doseRatePctPerMin, Mathf.Max(0f, ratePct), 0.35f);
+                _prevFeedingSpent = spent;
+
+                CheckThreshold(s.budgetLeftPct <= 75f, 1, Trigger.Budget75);
+                CheckThreshold(s.budgetLeftPct <= 50f, 2, Trigger.Budget50);
+                CheckThreshold(s.budgetLeftPct <= 25f, 4, Trigger.Budget25);
+                CheckThreshold(s.budgetLeftPct <= 10f, 8, Trigger.Budget10);
+                CheckThreshold(feeding.Budget01 <= 0.001f, 16, Trigger.BudgetSpent);
+            }
+            else if (dose)
+            {
+                if (_wasFeedingPlay) _prevTotal = dose.TotalFmm;
                 float frac = dose.Fraction;
                 s.dosePct = frac * 100f;
                 s.budgetLeftPct = Mathf.Clamp(100f - s.dosePct, 0f, 100f);
@@ -200,13 +266,19 @@ namespace Edge.Narration
                 _doseRatePctPerMin = Mathf.Lerp(_doseRatePctPerMin, Mathf.Max(0f, ratePct), 0.35f);
                 _prevTotal = total;
 
-                // thresholds fire once each, in order
-                CheckThreshold(s.budgetLeftPct <= 75f, 1, Trigger.Budget75);
-                CheckThreshold(s.budgetLeftPct <= 50f, 2, Trigger.Budget50);
-                CheckThreshold(s.budgetLeftPct <= 25f, 4, Trigger.Budget25);
-                CheckThreshold(s.budgetLeftPct <= 10f, 8, Trigger.Budget10);
-                CheckThreshold(dose.Exhausted, 16, Trigger.BudgetSpent);
+                // During feeding interstitials / results, ignore DoseModel so its
+                // leftover virtual dose does not contradict the feeding HUD.
+                bool allowDoseTriggers = feeding == null || feeding.CurrentState == EdgeFeedingGame.State.StartScreen;
+                if (allowDoseTriggers)
+                {
+                    CheckThreshold(s.budgetLeftPct <= 75f, 1, Trigger.Budget75);
+                    CheckThreshold(s.budgetLeftPct <= 50f, 2, Trigger.Budget50);
+                    CheckThreshold(s.budgetLeftPct <= 25f, 4, Trigger.Budget25);
+                    CheckThreshold(s.budgetLeftPct <= 10f, 8, Trigger.Budget10);
+                    CheckThreshold(dose.Exhausted, 16, Trigger.BudgetSpent);
+                }
             }
+            _wasFeedingPlay = feedingPlay;
 
             if (bat)
             {
