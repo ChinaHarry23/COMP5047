@@ -98,6 +98,11 @@ namespace Edge
         float[] _measureAt;
         int[] _passee;
         float[] _targetLat;
+        bool[] _walking;              // runner boxed in behind a walker, using the walk cycle
+        int[] _walkOk;                // 0 unknown, 1 its controller has the walk state, -1 not
+        float[] _gaitHold, _gaitAt;
+        string _walkState;            // a walker's state name and clip speed, borrowed for the fallback
+        float _walkNatural;
         static readonly List<AnimatorClipInfo> ClipInfos = new List<AnimatorClipInfo>(2);
         Transform[] _spine;
         Quaternion[] _spineSet;
@@ -119,7 +124,8 @@ namespace Edge
             _cruise = new float[n]; _v = new float[n]; _vPrev = new float[n]; _latVel = new float[n];
             _heading = new float[n]; _headVel = new float[n]; _bank = new float[n]; _natural = new float[n];
             _seed = new float[n]; _lean = new float[n]; _faceFix = new float[n]; _faceApplied = new float[n];
-            _measureAt = new float[n]; _passee = new int[n]; _targetLat = new float[n]; _spine = new Transform[n]; _spineSet = new Quaternion[n];
+            _measureAt = new float[n]; _passee = new int[n]; _targetLat = new float[n];
+            _walking = new bool[n]; _walkOk = new int[n]; _gaitHold = new float[n]; _gaitAt = new float[n]; _spine = new Transform[n]; _spineSet = new Quaternion[n];
             _torch = new EdgeBeam[n]; _torchHand = new Transform[n]; _sweepAt = new float[n];
             for (int i = 0; i < n; i++)
             {
@@ -474,10 +480,40 @@ namespace Edge
 
             if (!_cyc[i] && _natural[i] > 0f)
             {
-                float rate = Mathf.Clamp(_v[i] / _natural[i], 0.45f, playbackRateRange.y);
+                bool walk = GaitWalk(i, dt);
+                float rate = walk ? Mathf.Clamp(_v[i] / _walkNatural, 0.45f, 1.45f) : Mathf.Clamp(_v[i] / _natural[i], 0.45f, playbackRateRange.y);
                 if (_an[i]) _an[i].speed = rate;
                 else if (_legacy[i] != null) _legacy[i].speed = rate;
             }
+        }
+
+        // A runner boxed in behind a walker switches to the walk cycle instead of running in slow
+        // motion, and back once it can speed up (hysteresis + minimum dwell, crossfaded).
+        bool GaitWalk(int i, float dt)
+        {
+            if (!IsRunner(i) || !_an[i] || !FindWalkState()) return false;
+            if (_walkOk[i] == 0) _walkOk[i] = _an[i].HasState(0, Animator.StringToHash(_walkState)) ? 1 : -1;
+            if (_walkOk[i] < 0) return false;
+            float run01 = _v[i] / _natural[i];
+            bool want = _walking[i] ? run01 < 0.62f : run01 < 0.5f;
+            if (want == _walking[i]) { _gaitHold[i] = 0f; return _walking[i]; }
+            _gaitHold[i] += dt;
+            if (_gaitHold[i] > 0.3f && Time.time - _gaitAt[i] > 0.5f)
+            {
+                _walking[i] = want; _gaitHold[i] = 0f; _gaitAt[i] = Time.time;
+                _an[i].CrossFadeInFixedTime(want ? _walkState : clips[i], 0.25f, 0);
+            }
+            return _walking[i];
+        }
+
+        bool FindWalkState()
+        {
+            if (_walkState != null) return true;
+            for (int j = 0; j < agents.Length; j++)
+                if (agents[j] && !_cyc[j] && !IsRunner(j) && _an[j] && _measured[j] && _natural[j] > 0f
+                    && clips != null && j < clips.Length && !string.IsNullOrEmpty(clips[j]))
+                { _walkState = clips[j]; _walkNatural = _natural[j]; return true; }
+            return false;   // no measured walker yet; try again later
         }
 
         // The original motion: segment tangent, lateral slide, constant speed.

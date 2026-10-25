@@ -58,6 +58,9 @@ namespace Edge
             }
         }
 
+        /// Forget the virtual-lamp dose (the feeding game starts each round from a clean night).
+        public void ResetVirtual() { VirtualFmm = 0f; }
+
         // photLux: photopic lux the virtual lamp delivers at the bat right now.
         // Converted with the lamp endmember S/P, exactly as dose.c does.
         public void AddVirtualExposure(float photLux, float dt)

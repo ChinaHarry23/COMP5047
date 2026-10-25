@@ -44,8 +44,9 @@ namespace Edge.Feeding
         AudioClip[] _blips;
         AudioClip _ping;
         AudioSource[] _pool;
-        int _next, _lastCrunch = -1;
-        float _lastEat = -100f;
+        int _next, _lastCrunch = -1, _eatRing;
+        float _lastEat = -100f, _lastBlip = -100f;
+        readonly float[] _eatTimes = { -100f, -100f, -100f, -100f, -100f, -100f, -100f, -100f };
 
         EdgeFeedingBuzz _buzz;
 
@@ -96,8 +97,8 @@ namespace Edge.Feeding
             return s;
         }
 
-        // A free voice if there is one, else the oldest is stolen.
-        void Play(AudioClip clip, float volume, float pitch, float pan)
+        // A free voice if there is one; otherwise steal the oldest, or (steal = false) drop the sound.
+        bool Play(AudioClip clip, float volume, float pitch, float pan, bool steal = true)
         {
             AudioSource s = null;
             for (int k = 0; k < _pool.Length && !s; k++)
@@ -105,10 +106,12 @@ namespace Edge.Feeding
                 var c = _pool[(_next + k) % _pool.Length];
                 if (!c.isPlaying) s = c;
             }
+            if (!s && !steal) return false;
             if (!s) s = _pool[_next];
             _next = (System.Array.IndexOf(_pool, s) + 1) % _pool.Length;
             s.clip = clip; s.volume = volume; s.pitch = pitch; s.panStereo = pan;
             s.Play();
+            return true;
         }
 
         // ---- API used by EdgeFeedingGame -------------------------------------------------------
@@ -120,16 +123,21 @@ namespace Edge.Feeding
             int k = Random.Range(0, _crunch.Length);
             if (_crunch.Length > 1 && k == _lastCrunch) k = (k + 1 + Random.Range(0, _crunch.Length - 1)) % _crunch.Length;
             _lastCrunch = k;
-            float p = Mathf.Clamp(pan, -1f, 1f) * stereoWidth;
-            Play(_crunch[k], eatVolume, 1f + Random.Range(-pitchJitter, pitchJitter), p);
-
             float now = Time.time;
+            // flying through a swarm: catches inside ~120 ms share the loudness instead of stacking past full scale
+            int recent = 0;
+            foreach (float e in _eatTimes) if (now - e < 0.12f) recent++;
+            _eatTimes[_eatRing] = now; _eatRing = (_eatRing + 1) % _eatTimes.Length;
+            float p = Mathf.Clamp(pan, -1f, 1f) * stereoWidth;
+            Play(_crunch[k], eatVolume / Mathf.Sqrt(1f + recent), 1f + Random.Range(-pitchJitter, pitchJitter), p);
+
             Streak = now - _lastEat <= streakWindow ? Streak + 1 : 1;
             _lastEat = now;
-            if (streakVolume > 0f)
+            // at most one blip per 80 ms (the streak still counts every catch); never steal a voice for it
+            if (streakVolume > 0f && now - _lastBlip >= 0.08f)
             {
                 int note = Mathf.Min(Streak - 1, _blips.Length - 1);
-                Play(_blips[note], streakVolume * (Streak == 1 ? 0.6f : 1f), 1f, p * 0.5f);
+                if (Play(_blips[note], streakVolume * (Streak == 1 ? 0.6f : 1f), 1f, p * 0.5f, steal: false)) _lastBlip = now;
             }
         }
 
@@ -148,7 +156,7 @@ namespace Edge.Feeding
         {
             Build();
             if (pingVolume <= 0f || !_ping) return;
-            Play(_ping, pingVolume, 1f, 0f);
+            Play(_ping, pingVolume, 1f, 0f, steal: false);
         }
 
         public void ResetStreak() { Streak = 0; _lastEat = -100f; }

@@ -335,10 +335,12 @@ namespace Edge
             if (collisions) inst += FoliageCheck(transform.position, out folSpeed);
             float stunK = Stunned ? Mathf.Clamp01((_stunUntil - Time.time) / Mathf.Max(0.01f, stunSeconds)) : 0f;
             inst += stunK * stunInstability;
-            // light's steering disturbance stays out of the hand: EdgeLightEffects sends its own patterns
-            float instBase = Mathf.Clamp01(inst + extraInstability01);
-            inst = Mathf.Clamp01(instBase + lightInstability01);
-            float vibOut = Mathf.Max(instBase, Mathf.Max(extraVib01, lightVib01));
+            // The hand feels dose/foliage/stun instability plus explicit patterns (extraVib01, lightVib01).
+            // Steering-only disturbance from the feeding game and from light stays out of it, so the
+            // lamp hum, beam pulses and flash buzz remain distinguishable.
+            float instCore = Mathf.Clamp01(inst);
+            inst = Mathf.Clamp01(inst + extraInstability01 + lightInstability01);
+            float vibOut = Mathf.Max(instCore, Mathf.Max(extraVib01, lightVib01));
             if (Time.time < _bumpVibUntil) vibOut = Mathf.Max(vibOut, bumpVib);
             _noiseT += dt;
             float n = Mathf.PerlinNoise(_noiseT * 2f, 0.5f) * 2f - 1f;

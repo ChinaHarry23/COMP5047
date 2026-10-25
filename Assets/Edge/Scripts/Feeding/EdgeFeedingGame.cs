@@ -15,8 +15,8 @@ namespace Edge.Feeding
     //    and light-tolerant rival bats hawk the swarms (preset.RivalCount), so the dark gets poorer.
     //  - Sound: EdgeFeedingAudio (crunch, streak, feeding buzz). Light that hits the bat (lamps, torches,
     //    bike lights, flashes) is felt through EdgeLightEffects, scaled per bat.
-    //  - The end screen compares both bats side by side (moths, time in light, share of insects at
-    //    lamps) with one line from the national guidelines.
+    //  - The end screen compares both bats side by side (moths, time in light, dark moths left, moths
+    //    the rivals took at the lamps) with one line from the national guidelines.
     // Lamps are found from LampZone components (fallback: Light components).
     // Keys: Space/Enter start, 1/2 variant, R restart, E echolocation ping, H full debug HUD.
     public class EdgeFeedingGame : MonoBehaviour
@@ -69,6 +69,8 @@ namespace Edge.Feeding
         public float eatVibSeconds = 0.12f;
         public Key debugHudKey = Key.H;
         public float hintFadeSeconds = 3f;
+        [Tooltip("Results screen idle this long (s) = the next visitor: back to the start screen, two-bat comparison cleared (0 = never)")]
+        public float newVisitAfterSeconds = 45f;
 
         // Hooks (e.g. EdgeNarrator). Optional; nothing subscribes by default.
         public event Action<int> InsectEaten;
@@ -90,6 +92,8 @@ namespace Edge.Feeding
         public float LampShare01 { get; private set; }
         /// Moths eaten by the rival bats this round.
         public int RivalScore { get; private set; }
+        /// Moths living in the dark right now (alive or about to respawn there).
+        public int DarkInsects { get { int n = 0; foreach (var s in _ins) if (s.lamp < 0) n++; return n; } }
         public EdgeFeedingPreset Preset => variant == Variant.LightTolerant ? tolerantPreset : aversePreset;
 
         struct Insect
@@ -109,7 +113,7 @@ namespace Edge.Feeding
 
         struct Pop { public Vector3 pos; public float t; public int seed; }
 
-        struct RoundResult { public bool played; public int moths, best; public float lightSeconds, lampShare; public string reason; }
+        struct RoundResult { public bool played; public int moths, darkStart, darkEnd, rivals; public float lightSeconds; public string reason; }
 
         static readonly Color LegacyMothColor = new Color(0.06f, 0.045f, 0.035f);
         const float PopLife = 0.4f, FloatLife = 0.8f;
@@ -125,14 +129,17 @@ namespace Edge.Feeding
         readonly Matrix4x4[] _burstMats = new Matrix4x4[256];
         readonly Matrix4x4[][] _rivalMats = new Matrix4x4[RivalFrames][];
         readonly int[] _rivalN = new int[RivalFrames];
-        readonly RoundResult[] _results = new RoundResult[2];
+        readonly RoundResult[] _results = new RoundResult[2];   // this visit
+        readonly int[] _best = new int[2];                      // all day
         Mesh _mesh;
         readonly Mesh[] _batMesh = new Mesh[RivalFrames];
         Material _mat, _echoMat, _burstMat, _rivalMat;
         EdgeFeedingAudio _sfx;
         EdgeLightEffects _fx;
         Vector3 _startPos, _pathMin, _pathMax;
-        float _startHeading, _budgetFmm, _vibUntil, _playStart, _lastPing = -100f, _scorePulse = -100f;
+        float _startHeading, _budgetFmm, _vibUntil, _playStart, _lastPing = -100f, _scorePulse = -100f, _endedAt;
+        int _darkAtStart;
+        static readonly RaycastHit[] GroundHits = new RaycastHit[16];
         readonly System.Random _rng = new System.Random(5047);
 
         EdgeLightEffects Fx => _fx ? _fx : (_fx = EdgeLightEffects.Instance);
@@ -302,7 +309,7 @@ namespace Edge.Feeding
         {
             var p = Preset;
             _ins = new Insect[Mathf.Clamp(p.insectCount, 1, 300)];
-            for (int i = 0; i < _ins.Length; i++) Respawn(ref _ins[i], p);
+            for (int i = 0; i < _ins.Length; i++) Respawn(ref _ins[i], p, -1);
             _rivals = new Rival[_lampHeads.Count == 0 ? 0 : Mathf.Clamp(p.RivalCount, 0, 16)];
             for (int i = 0; i < _rivals.Length; i++)
             {
@@ -327,9 +334,11 @@ namespace Edge.Feeding
             s.axis = (Vector3.up + InUnitSphere() * 0.8f).normalized;           // tilted orbit plane
         }
 
-        void Respawn(ref Insect s, EdgeFeedingPreset p)
+        // where: -1 = pick by lampShare (initial spawn), 1 = at a lamp, 0 = in the dark. Eaten moths come back
+        // where they lived, so only the lamps' pull moves insects between dark and light: the dark can only drain.
+        void Respawn(ref Insect s, EdgeFeedingPreset p, int where)
         {
-            bool lampIns = _lampHeads.Count > 0 && _rng.NextDouble() < p.lampShare;
+            bool lampIns = _lampHeads.Count > 0 && (where < 0 ? _rng.NextDouble() < p.lampShare : where > 0);
             if (lampIns)
             {
                 AssignToLamp(ref s, _rng.Next(_lampHeads.Count), p);
@@ -345,14 +354,24 @@ namespace Edge.Feeding
                     Vector3 d = new Vector3(x - _lampHeads[k].x, 0, z - _lampHeads[k].z);
                     if (d.sqrMagnitude < 64f) { d = d.sqrMagnitude < 0.01f ? Vector3.right : d.normalized; x = _lampHeads[k].x + d.x * 8f; z = _lampHeads[k].z + d.z * 8f; }
                 }
-                float groundY = Physics.Raycast(new Vector3(x, 200f, z), Vector3.down, out var hit, 400f) ? hit.point.y : _startPos.y - 1f;
-                s.anchor = new Vector3(x, groundY + Rand(p.darkHeight.x, p.darkHeight.y), z);
+                s.anchor = new Vector3(x, GroundY(x, z) + Rand(p.darkHeight.x, p.darkHeight.y), z);
+                if (flight)   // keep every dark moth inside the band the bat can fly (+/-1.25 m wander)
+                    s.anchor.y = Mathf.Clamp(s.anchor.y, flight.minAltitude + 0.5f, Mathf.Max(flight.minAltitude + 0.5f, flight.maxAltitude - 1.5f));
                 s.pos = s.anchor + InUnitSphere();
             }
             s.vel = Vector3.zero;
             s.phase = Rand(0f, 100f);
             s.nextDart = Time.time + Rand(0f, 2f);
             s.alive = true;
+        }
+
+        // Lowest solid hit under (x, z): tree-crown foliage triggers and trunk tops are not the ground.
+        float GroundY(float x, float z)
+        {
+            int n = Physics.RaycastNonAlloc(new Vector3(x, 200f, z), Vector3.down, GroundHits, 400f, ~(1 << 2), QueryTriggerInteraction.Ignore);
+            float y = float.MaxValue;
+            for (int i = 0; i < n; i++) y = Mathf.Min(y, GroundHits[i].point.y);
+            return n > 0 ? y : _startPos.y - 1f;
         }
 
         // ---- flow --------------------------------------------------------------
@@ -372,7 +391,9 @@ namespace Edge.Feeding
             _pops.Clear();
             _floaters.Clear();
             SpawnAll();
+            _darkAtStart = DarkInsects;
             if (flight) flight.ResetPose(_startPos, _startHeading);
+            if (flight && flight.dose) flight.dose.ResetVirtual();   // the exhibit dose must not carry over between rounds
             CurrentState = State.Playing;
             _playStart = Time.unscaledTime;
             if (_sfx) _sfx.ResetStreak();
@@ -388,24 +409,37 @@ namespace Edge.Feeding
         {
             CurrentState = State.Ended;
             EndReason = reason;
+            _endedAt = Time.unscaledTime;
             ref var r = ref _results[(int)variant];
             r.played = true;
             r.moths = Score;
-            r.best = Mathf.Max(r.best, Score);
             r.lightSeconds = LightSeconds;
-            r.lampShare = LampShare01;
+            r.darkStart = _darkAtStart;
+            r.darkEnd = DarkInsects;
+            r.rivals = RivalScore;
             r.reason = reason;
+            _best[(int)variant] = Mathf.Max(_best[(int)variant], Score);
             if (_sfx) _sfx.SetApproach(0f, 0f);
             ApplyFlightMods(false);
             ApplyHud();
             RoundEnded?.Invoke(variant, Score, reason);
         }
 
+        /// A new visitor: back to the start screen with an empty two-bat comparison (day bests are kept).
+        public void NewVisit()
+        {
+            _results[0] = _results[1] = default;
+            CurrentState = State.StartScreen;
+            ApplyFlightMods(false);
+            ApplyHud();
+        }
+
         void ApplyHud()
         {
             if (!exhibitHud) return;
             exhibitHud.compact = !DebugHud;
-            exhibitHud.hideBudget = !DebugHud && variant == Variant.LightTolerant;
+            // the exhibit's budget-spent dimming belongs to the exhibit mode; each bat here has its own budget
+            exhibitHud.hideBudget = !DebugHud;
         }
 
         void ApplyFlightMods(bool playing, bool restoreDefaults = false)
@@ -417,7 +451,7 @@ namespace Edge.Feeding
                 flight.speedMultiplier = restoreDefaults ? 1f : (CurrentState == State.Ended ? 0.4f : 1f);
                 flight.extraInstability01 = 0f;
                 flight.extraVib01 = 0f;
-                flight.ignoreDoseInstability = false;
+                flight.ignoreDoseInstability = !restoreDefaults;   // start/end screens never wobble or buzz from the exhibit dose
                 return;
             }
             flight.speedMultiplier = p.speedMultiplier;
@@ -440,6 +474,7 @@ namespace Edge.Feeding
             }
             var gp = Gamepad.current;
             if (gp != null && CurrentState != State.Playing && gp.startButton.wasPressedThisFrame) Restart();
+            if (CurrentState == State.Ended && newVisitAfterSeconds > 0f && Time.unscaledTime - _endedAt > newVisitAfterSeconds) NewVisit();
 
             var pr = Preset;
             if (CurrentState == State.Playing && pr.EchoEnabled && pr.echoInterval > 0f && Time.time - _lastPing >= pr.echoInterval)
@@ -494,7 +529,7 @@ namespace Edge.Feeding
                     flight.extraInstability01 = Mathf.Max(InLight ? p.litInstability : 0f, (1f - Budget01) * 0.6f);
                 }
                 if (InLight || beamed) Hunger01 -= p.litHungerDrainPerSec * dt;
-                vib = InLight ? Mathf.Clamp01(0.25f + lux * 0.1f) : 0f;
+                // (the lamp's weak hum comes from EdgeLightEffects, per the design's light-type mapping)
                 if (_budgetFmm <= 0f) { End("Light budget spent — forced to retreat to the roost."); return; }
             }
             else if (flight) { flight.extraInstability01 = 0f; }
@@ -569,7 +604,7 @@ namespace Edge.Feeding
                 ref var s = ref _ins[i];
                 if (!s.alive)
                 {
-                    if (t >= s.respawnAt) Respawn(ref s, p);
+                    if (t >= s.respawnAt) Respawn(ref s, p, s.lamp >= 0 ? 1 : 0);
                     continue;
                 }
                 float ph = s.phase + t * p.insectSpeed;
@@ -606,7 +641,7 @@ namespace Edge.Feeding
                         if (hd < p.lampPullRange)
                         {
                             float pull = p.lampPull * (1f - hd / p.lampPullRange);
-                            s.anchor = Vector3.MoveTowards(s.anchor, _lampHeads[k], 0.25f * pull * dt);
+                            s.anchor = Vector3.MoveTowards(s.anchor, _lampHeads[k], 0.6f * pull * dt);   // ~half the dark drained in 90 s
                             if (hd < capture) AssignToLamp(ref s, k, p);
                         }
                     }
@@ -836,13 +871,14 @@ namespace Edge.Feeding
             GUI.Label(new Rect(panel.x, panel.y + 14f, panel.width, 34f), $"{Score} moths", _big);
             GUI.Label(new Rect(panel.x, panel.y + 48f, panel.width, 22f), EndReason, _wrap);
             float cy = panel.y + 82f, cw = (panel.width - 90f) * 0.5f;
-            Column(new Rect(panel.x + 30f, cy, cw, 120f), tolerantPreset, Variant.LightTolerant, white);
-            Column(new Rect(panel.x + 60f + cw, cy, cw, 120f), aversePreset, Variant.LightAverse, white);
+            Column(new Rect(panel.x + 30f, cy, cw, 124f), tolerantPreset, Variant.LightTolerant, white);
+            Column(new Rect(panel.x + 60f + cw, cy, cw, 124f), aversePreset, Variant.LightAverse, white);
             var rt = _results[(int)Variant.LightTolerant];
             var ra = _results[(int)Variant.LightAverse];
-            string verdict = rt.played && ra.played
-                ? $"Same night, same insects: the light-tolerant bat caught {rt.moths}, the light-averse bat {ra.moths}. The lamps decided who ate."
-                : p.endMessage;
+            string verdict = !(rt.played && ra.played) ? p.endMessage
+                : rt.moths > ra.moths
+                    ? $"Same night, same insects: the light-tolerant bat caught {rt.moths}, the light-averse bat {ra.moths}. The lamps decided who ate."
+                    : $"The light-averse bat found {ra.moths} in the dark this time (light-tolerant: {rt.moths}). On most lit nights the lamps take that food first.";
             GUI.Label(new Rect(panel.x + 30f, cy + 132f, panel.width - 60f, 64f), verdict, _wrap);
             GUI.Label(new Rect(panel.x + 30f, cy + 200f, panel.width - 60f, 44f),
                 "Keep corridors dark. Where light is needed, use less of it: warmer, pointed down, shielded, and on for less time. " +
@@ -861,9 +897,10 @@ namespace Edge.Feeding
             GUI.Label(new Rect(r.x, r.y, r.width, 22f), name + (current ? "  (this round)" : ""), _colHead);
             string body = !res.played
                 ? $"Not played yet: press {(v == Variant.LightTolerant ? 1 : 2)}"
-                : $"Moths caught:  {res.moths}   (best {res.best})\n" +
+                : $"Moths caught:  {res.moths}   (today's best {_best[(int)v]})\n" +
                   $"Time in light:  {res.lightSeconds:F0} s\n" +
-                  $"Insects at lamps by the end:  {res.lampShare * 100f:F0}%";
+                  $"Moths left in the dark:  {res.darkStart} -> {res.darkEnd}\n" +
+                  $"Eaten at the lamps by light-tolerant bats:  {res.rivals}";
             GUI.Label(new Rect(r.x, r.y + 26f, r.width, r.height - 26f), body, _col);
         }
 

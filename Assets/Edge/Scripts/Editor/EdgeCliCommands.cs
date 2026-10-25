@@ -41,7 +41,7 @@ namespace Edge.EditorTools
             }
             else sb.AppendLine("feeding game: none");
 
-            var fx = Find<EdgeLightEffects>();
+            var fx = Object.FindAnyObjectByType<EdgeLightEffects>(FindObjectsInactive.Include);
             sb.AppendLine(fx ? $"light effects: scale {fx.scale:F2} haze {fx.Haze01:F2} beam {fx.Beam01:F2} flash {fx.Flash01:F2} real '{fx.RealClass}'"
                              : "light effects: none in the scene (one is created automatically in Play mode; edge_upgrade_scene adds it)");
 
@@ -72,7 +72,7 @@ namespace Edge.EditorTools
             var sb = new StringBuilder();
             var scene = EditorSceneManager.GetActiveScene();
 
-            var fx = Find<EdgeLightEffects>();
+            var fx = Object.FindAnyObjectByType<EdgeLightEffects>(FindObjectsInactive.Include);   // an inactive one counts
             if (!fx)
             {
                 var go = new GameObject("EdgeLightEffects");

@@ -36,7 +36,7 @@ namespace Edge
         [Tooltip("Hip-joint midpoint in agent space. Zero = derived from the crank and the rider's leg length")]
         public Vector3 seatHip;
         [Tooltip("Hip-to-ankle distance at the bottom of the stroke, as a fraction of leg length")]
-        [Range(0.85f, 1f)] public float kneeReach = 0.93f;
+        [Range(0.85f, 1f)] public float kneeReach = 0.955f;   // ~30-35 deg knee bend at the bottom, the bike-fit norm
         [Tooltip("Shoulder-to-grip distance as a fraction of arm length")]
         [Range(0.7f, 1f)] public float armReach = 0.93f;
         [Tooltip("Torso lean from vertical (deg). Negative = derived from the grip position")]
@@ -44,6 +44,12 @@ namespace Edge
         [Tooltip("Hip rock with the pedal stroke (deg)")] public float hipRockDeg = 2.5f;
         [Tooltip("Foot pitch swing through the stroke (deg)")] [Range(0f, 30f)] public float anklingDeg = 16f;
         public bool lookAhead = true;
+        [Tooltip("Also orient the hands palm-down on the bars. Assumes Mecanim's T-pose-normalised hand goal; " +
+                 "if the wrists twist, adjust handRotation or turn this off")]
+        public bool alignHands = false;
+        public Vector3 handRotation = new Vector3(10f, 90f, 0f);   // x: fingers down, y: +/- per side (left +, right -)
+        [Tooltip("Wrist goal offset from the grip point (agent space, mirrored for the left hand), so the palm, not the wrist, sits on the bar")]
+        public Vector3 wristFromGrip = new Vector3(0f, 0.03f, -0.06f);
 
         [Header("Coasting")]
         [Tooltip("Seconds between coasting spells (random in range); 0,0 = always pedal")]
@@ -71,8 +77,8 @@ namespace Edge
         Vector3 _hipOffset;                     // hip-joint midpoint relative to the body (COM), body frame
         Vector3 _lastBodyPos;
         Quaternion _lastBodyRot;
-        bool _coasting;
-        float _coastUntil, _nextCoast, _pedal01 = 1f;
+        bool _coasting, _braking;
+        float _coastUntil, _nextCoast, _pedal01 = 1f, _speed, _accel;
         EdgeBeam _light;
 
         void Start()
@@ -122,7 +128,8 @@ namespace Edge
         {
             const float seatTube = 73f * Mathf.Deg2Rad;
             Vector3 d = new Vector3(0f, Mathf.Sin(seatTube), -Mathf.Cos(seatTube));
-            Vector3 a = new Vector3(0f, -crankRadius, 0f) + ankleAbovePedal;
+            // ankle at the bottom of the stroke, with the foot pitched as Foot() pitches it there
+            Vector3 a = new Vector3(0f, -crankRadius, 0f) + Quaternion.Euler(6f + 0.5f * anklingDeg, 0f, 0f) * ankleAbovePedal;
             float r = kneeReach * _legLen, da = Vector3.Dot(d, a);
             float t = da + Mathf.Sqrt(Mathf.Max(0f, da * da - a.sqrMagnitude + r * r));
             return crankCentre + d * t;
@@ -149,14 +156,27 @@ namespace Edge
         {
             float moved = Vector3.Dot(agent.position - _lastPos, agent.forward);
             _lastPos = agent.position;
-            if (Mathf.Abs(moved) > 5f) moved = 0f; // respawned at the far end: no spin for the jump
+            bool jumped = Mathf.Abs(moved) > 5f;
+            if (jumped) moved = 0f; // respawned at the far end: no spin for the jump
             float rolled = moved / wheelRadius * Mathf.Rad2Deg; // positive about +X = top of the wheel moves forward
             _wheelDeg = Mathf.Repeat(_wheelDeg + rolled, 360f);
 
-            // coast now and then: stop pedalling with the pedals level, then pick it up again
-            float t = Time.time;
-            if (_coasting && t >= _coastUntil) { _coasting = false; _nextCoast = t + Random.Range(coastEvery.x, coastEvery.y); }
-            if (!_coasting && coastEvery.y > 0f && t >= _nextCoast && Mathf.Abs(Mathf.Repeat(_crankDeg, 180f) - 90f) < 12f)
+            // ground speed, low-passed (tau 0.25 s) before differentiating; the respawn jump is skipped
+            float t = Time.time, dt = Time.deltaTime;
+            if (dt > 0f && !jumped)
+            {
+                float k = 1f - Mathf.Exp(-dt / 0.25f);
+                float sp = Mathf.Lerp(_speed, moved / dt, k);
+                _accel = Mathf.Lerp(_accel, (sp - _speed) / dt, k);
+                _speed = sp;
+            }
+            // coast now and then with the pedals level; always while braking (slowing for someone ahead),
+            // never while picking up speed
+            if (_braking && _accel > -0.1f) { _braking = false; _coasting = false; _nextCoast = t + Random.Range(coastEvery.x, coastEvery.y); }
+            if (_coasting && !_braking && (t >= _coastUntil || _accel > 0.3f)) { _coasting = false; _nextCoast = t + Random.Range(coastEvery.x, coastEvery.y); }
+            bool level = Mathf.Abs(Mathf.Repeat(_crankDeg, 180f) - 90f) < 12f;
+            if (!_coasting && level && _accel < -0.4f) { _coasting = true; _braking = true; }
+            else if (!_coasting && level && coastEvery.y > 0f && t >= _nextCoast && _accel <= 0.1f)
             { _coasting = true; _coastUntil = t + Random.Range(coastFor.x, coastFor.y); }
             if (!_coasting) _crankDeg = Mathf.Repeat(_crankDeg + rolled / gearRatio, 360f);
             _pedal01 = Mathf.MoveTowards(_pedal01, _coasting ? 0f : 1f, 3f * Time.deltaTime);
@@ -204,9 +224,15 @@ namespace Edge
 
         void Hand(AvatarIKGoal goal, AvatarIKHint elbow, Transform shoulder, Vector3 grip, float side)
         {
-            Vector3 g = agent.TransformPoint(grip);
+            Vector3 g = agent.TransformPoint(alignHands ? grip + new Vector3(wristFromGrip.x * side, wristFromGrip.y, wristFromGrip.z) : grip);
             _an.SetIKPositionWeight(goal, 1f);
             _an.SetIKPosition(goal, g);
+            if (alignHands)
+            {
+                // fingers forward and a little down, palm down (Euler x applied after the per-side yaw)
+                _an.SetIKRotationWeight(goal, 1f);
+                _an.SetIKRotation(goal, agent.rotation * Quaternion.Euler(handRotation.x, 0f, handRotation.z) * Quaternion.Euler(0f, side < 0f ? handRotation.y : -handRotation.y, 0f));
+            }
             if (!shoulder) return;
             _an.SetIKHintPositionWeight(elbow, 0.8f);   // elbows out and a little down, not flipped up
             _an.SetIKHintPosition(elbow, 0.5f * (shoulder.position + g) + agent.right * (side * 0.18f) - agent.up * 0.12f);
@@ -215,13 +241,15 @@ namespace Edge
         void OnAnimatorIK(int layer)
         {
             if (!_an || !agent) return;
-            if (seatRider && _haveOffset)
+            if (seatRider)
             {
+                // until the first measurement, a typical hip-below-COM offset seats the rider from the first visible frame
+                Vector3 hipOff = _haveOffset ? _hipOffset : new Vector3(0f, -0.05f, 0f) * _an.humanScale;
                 float rock = hipRockDeg * Mathf.Sin(_crankDeg * Mathf.Deg2Rad) * _pedal01;
                 float lean = _lean - 4f * (1f - _pedal01);   // sit up a little while coasting
                 Quaternion rb = agent.rotation * Quaternion.Euler(lean, 0f, rock);
                 _an.bodyRotation = rb;
-                _an.bodyPosition = agent.TransformPoint(_seat) - rb * _hipOffset;
+                _an.bodyPosition = agent.TransformPoint(_seat) - rb * hipOff;
             }
             _lastBodyPos = _an.bodyPosition;
             _lastBodyRot = _an.bodyRotation;
