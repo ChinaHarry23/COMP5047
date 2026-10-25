@@ -140,7 +140,7 @@ namespace Edge.Feeding
         float _startHeading, _budgetFmm, _vibUntil, _playStart, _lastPing = -100f, _scorePulse = -100f, _endedAt;
         int _darkAtStart;
         static readonly RaycastHit[] GroundHits = new RaycastHit[16];
-        readonly System.Random _rng = new System.Random(5047);
+        System.Random _rng = new System.Random(5047);
 
         EdgeLightEffects Fx => _fx ? _fx : (_fx = EdgeLightEffects.Instance);
 
@@ -168,7 +168,11 @@ namespace Edge.Feeding
             else Restart();
         }
 
-        void OnEnable() { if (flight) flight.Bumped += OnBumped; }
+        void OnEnable()
+        {
+            if (flight) flight.Bumped += OnBumped;
+            if (_mesh) { ApplyFlightMods(CurrentState == State.Playing); ApplyHud(); }   // re-enabled after Start: take the bat back
+        }
 
         void OnBumped(Vector3 point, Vector3 normal, Collider c)
         {
@@ -180,6 +184,7 @@ namespace Edge.Feeding
         {
             if (flight) flight.Bumped -= OnBumped;
             ApplyFlightMods(false, restoreDefaults: true);
+            if (flight && flight.dose) flight.dose.ResetVirtual();   // the exhibit resumes without the game's lamp dose
             if (exhibitHud) { exhibitHud.compact = false; exhibitHud.hideBudget = false; }
             if (Fx) Fx.scale = 1f;
             if (_sfx) _sfx.SetApproach(0f, 0f);
@@ -308,6 +313,7 @@ namespace Edge.Feeding
         void SpawnAll()
         {
             var p = Preset;
+            _rng = new System.Random(5047);   // same starting field every round: both bats get the same night
             _ins = new Insect[Mathf.Clamp(p.insectCount, 1, 300)];
             for (int i = 0; i < _ins.Length; i++) Respawn(ref _ins[i], p, -1);
             _rivals = new Rival[_lampHeads.Count == 0 ? 0 : Mathf.Clamp(p.RivalCount, 0, 16)];
@@ -429,6 +435,9 @@ namespace Edge.Feeding
         public void NewVisit()
         {
             _results[0] = _results[1] = default;
+            var p = Preset;   // the start screen must not show the last visitor's round
+            Score = 0; RivalScore = 0; LightSeconds = 0f; EndReason = "";
+            TimeLeft = p.roundSeconds; Hunger01 = p.startHunger; Budget01 = 1f;
             CurrentState = State.StartScreen;
             ApplyFlightMods(false);
             ApplyHud();
@@ -529,7 +538,8 @@ namespace Edge.Feeding
                     flight.extraInstability01 = Mathf.Max(InLight ? p.litInstability : 0f, (1f - Budget01) * 0.6f);
                 }
                 if (InLight || beamed) Hunger01 -= p.litHungerDrainPerSec * dt;
-                // (the lamp's weak hum comes from EdgeLightEffects, per the design's light-type mapping)
+                // the lamp's weak hum comes from EdgeLightEffects (design mapping); same hum here if that is missing/off
+                if (InLight && !(Fx && Fx.isActiveAndEnabled)) vib = Mathf.Max(vib, 0.22f);
                 if (_budgetFmm <= 0f) { End("Light budget spent — forced to retreat to the roost."); return; }
             }
             else if (flight) { flight.extraInstability01 = 0f; }

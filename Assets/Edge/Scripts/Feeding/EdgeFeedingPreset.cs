@@ -81,7 +81,7 @@ namespace Edge.Feeding
             p.speciesBlurb = "Gould's wattled bat (Chalinolobus gouldii): fast open-air forager that hunts moths at streetlights.";
             p.endMessage = "Light-tolerant species can gain from streetlights: moths gather at lamps, and these fast open-air bats exploit them.";
             p.lightHurts = false; p.ignoreDoseInstability = true; p.speedMultiplier = 1.15f;
-            p.lampShare = 0.8f; p.hungerDrainPerSec = 0.02f;
+            p.lampShare = 0.75f; p.hungerDrainPerSec = 0.02f;   // same insect field as the averse bat: only the bat differs
             p.playHint = "Moths crowd the lamps. Fly straight in.";
             return p;
         }

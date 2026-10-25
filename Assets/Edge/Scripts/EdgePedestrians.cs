@@ -101,8 +101,8 @@ namespace Edge
         bool[] _walking;              // runner boxed in behind a walker, using the walk cycle
         int[] _walkOk;                // 0 unknown, 1 its controller has the walk state, -1 not
         float[] _gaitHold, _gaitAt;
-        string _walkState;            // a walker's state name and clip speed, borrowed for the fallback
-        float _walkNatural;
+        string _walkState;            // a walker's state name and clip speed (per unit body scale), borrowed for the fallback
+        float _walkSpeedPerScale;
         static readonly List<AnimatorClipInfo> ClipInfos = new List<AnimatorClipInfo>(2);
         Transform[] _spine;
         Quaternion[] _spineSet;
@@ -312,6 +312,7 @@ namespace Edge
                 }
 
                 if (_faceDone[i]) continue;
+                if (_walking[i] || (_an[i] && _an[i].IsInTransition(0))) continue;   // measure the agent's own clip only
                 bool vis = false;
                 foreach (var r in _renderers[i]) if (r && r.isVisible) { vis = true; break; }
                 if (!vis) continue;   // culled Animator = bind pose, would bias the measurement
@@ -481,7 +482,7 @@ namespace Edge
             if (!_cyc[i] && _natural[i] > 0f)
             {
                 bool walk = GaitWalk(i, dt);
-                float rate = walk ? Mathf.Clamp(_v[i] / _walkNatural, 0.45f, 1.45f) : Mathf.Clamp(_v[i] / _natural[i], 0.45f, playbackRateRange.y);
+                float rate = walk ? Mathf.Clamp(_v[i] / WalkNatural(i), 0.45f, 1.45f) : Mathf.Clamp(_v[i] / _natural[i], 0.45f, playbackRateRange.y);
                 if (_an[i]) _an[i].speed = rate;
                 else if (_legacy[i] != null) _legacy[i].speed = rate;
             }
@@ -489,22 +490,29 @@ namespace Edge
 
         // A runner boxed in behind a walker switches to the walk cycle instead of running in slow
         // motion, and back once it can speed up (hysteresis + minimum dwell, crossfaded).
+        // Thresholds are on the walk clip's rate: walk below 1.27x (any walker's pace, which the drift cap keeps
+        // under 1.25x), run again above 1.4x, before the walk feet would skate.
         bool GaitWalk(int i, float dt)
         {
-            if (!IsRunner(i) || !_an[i] || !FindWalkState()) return false;
+            if (!IsRunner(i) || !_an[i] || !_measured[i] || !FindWalkState()) return false;
             if (_walkOk[i] == 0) _walkOk[i] = _an[i].HasState(0, Animator.StringToHash(_walkState)) ? 1 : -1;
             if (_walkOk[i] < 0) return false;
-            float run01 = _v[i] / _natural[i];
-            bool want = _walking[i] ? run01 < 0.62f : run01 < 0.5f;
+            float walk01 = _v[i] / WalkNatural(i);
+            bool want = _walking[i] ? walk01 < 1.4f : walk01 < 1.27f;
             if (want == _walking[i]) { _gaitHold[i] = 0f; return _walking[i]; }
             _gaitHold[i] += dt;
-            if (_gaitHold[i] > 0.3f && Time.time - _gaitAt[i] > 0.5f)
+            // entering is debounced (0.3 s, and 0.5 s after the last switch); leaving is immediate
+            if (!want || (_gaitHold[i] > 0.3f && Time.time - _gaitAt[i] > 0.5f))
             {
                 _walking[i] = want; _gaitHold[i] = 0f; _gaitAt[i] = Time.time;
-                _an[i].CrossFadeInFixedTime(want ? _walkState : clips[i], 0.25f, 0);
+                var st = _an[i].GetCurrentAnimatorStateInfo(0);   // carry the foot phase across the crossfade
+                _an[i].CrossFade(want ? _walkState : clips[i], 0.25f / Mathf.Max(0.1f, st.length), 0, Mathf.Repeat(st.normalizedTime, 1f));
             }
             return _walking[i];
         }
+
+        float BodyScale(int k) => _an[k] ? (_an[k].isHuman ? _an[k].humanScale : 1f) * _an[k].transform.lossyScale.y : 1f;
+        float WalkNatural(int i) => _walkSpeedPerScale * BodyScale(i);
 
         bool FindWalkState()
         {
@@ -512,7 +520,7 @@ namespace Edge
             for (int j = 0; j < agents.Length; j++)
                 if (agents[j] && !_cyc[j] && !IsRunner(j) && _an[j] && _measured[j] && _natural[j] > 0f
                     && clips != null && j < clips.Length && !string.IsNullOrEmpty(clips[j]))
-                { _walkState = clips[j]; _walkNatural = _natural[j]; return true; }
+                { _walkState = clips[j]; _walkSpeedPerScale = _natural[j] / Mathf.Max(0.01f, BodyScale(j)); return true; }
             return false;   // no measured walker yet; try again later
         }
 

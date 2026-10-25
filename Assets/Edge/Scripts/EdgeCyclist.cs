@@ -47,7 +47,7 @@ namespace Edge
         [Tooltip("Also orient the hands palm-down on the bars. Assumes Mecanim's T-pose-normalised hand goal; " +
                  "if the wrists twist, adjust handRotation or turn this off")]
         public bool alignHands = false;
-        public Vector3 handRotation = new Vector3(10f, 90f, 0f);   // x: fingers down, y: +/- per side (left +, right -)
+        public Vector3 handRotation = new Vector3(10f, 90f, 0f);   // x: fingers down; y and z mirrored per side (as given for the left hand)
         [Tooltip("Wrist goal offset from the grip point (agent space, mirrored for the left hand), so the palm, not the wrist, sits on the bar")]
         public Vector3 wristFromGrip = new Vector3(0f, 0.03f, -0.06f);
 
@@ -138,7 +138,8 @@ namespace Edge
         // Smallest forward lean that brings the shoulders within armReach * arm length of the grips.
         float EstimateLean()
         {
-            Vector3 g = 0.5f * (gripLeft + gripRight);
+            // where the wrists actually go (alignHands moves them off the grip point; the mirrored x cancels)
+            Vector3 g = 0.5f * (gripLeft + gripRight) + (alignHands ? new Vector3(0f, wristFromGrip.y, wristFromGrip.z) : Vector3.zero);
             float reach = armReach * _armLen, bestDeg = 30f, bestD = float.MaxValue;
             for (int deg = 5; deg <= 60; deg++)
             {
@@ -231,7 +232,7 @@ namespace Edge
             {
                 // fingers forward and a little down, palm down (Euler x applied after the per-side yaw)
                 _an.SetIKRotationWeight(goal, 1f);
-                _an.SetIKRotation(goal, agent.rotation * Quaternion.Euler(handRotation.x, 0f, handRotation.z) * Quaternion.Euler(0f, side < 0f ? handRotation.y : -handRotation.y, 0f));
+                _an.SetIKRotation(goal, agent.rotation * Quaternion.Euler(handRotation.x, 0f, -side * handRotation.z) * Quaternion.Euler(0f, -side * handRotation.y, 0f));
             }
             if (!shoulder) return;
             _an.SetIKHintPositionWeight(elbow, 0.8f);   // elbows out and a little down, not flipped up

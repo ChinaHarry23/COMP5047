@@ -96,7 +96,13 @@ namespace Edge
         static void AutoCreate()
         {
             // Scenes built before this component existed still get the effects.
-            if (FindAnyObjectByType<EdgeLightEffects>(FindObjectsInactive.Include) || !FindAnyObjectByType<BatFlightController>()) return;
+            var existing = FindAnyObjectByType<EdgeLightEffects>(FindObjectsInactive.Include);
+            if (existing)
+            {
+                if (!existing.isActiveAndEnabled) Debug.LogWarning($"[EDGE] EdgeLightEffects on '{existing.name}' is inactive: light effects are off", existing);
+                return;
+            }
+            if (!FindAnyObjectByType<BatFlightController>()) return;
             new GameObject("EdgeLightEffects (auto)").AddComponent<EdgeLightEffects>();
         }
 

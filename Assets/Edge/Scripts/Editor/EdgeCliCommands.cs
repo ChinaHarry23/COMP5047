@@ -42,7 +42,7 @@ namespace Edge.EditorTools
             else sb.AppendLine("feeding game: none");
 
             var fx = Object.FindAnyObjectByType<EdgeLightEffects>(FindObjectsInactive.Include);
-            sb.AppendLine(fx ? $"light effects: scale {fx.scale:F2} haze {fx.Haze01:F2} beam {fx.Beam01:F2} flash {fx.Flash01:F2} real '{fx.RealClass}'"
+            sb.AppendLine(fx ? $"light effects{(fx.enabled && fx.gameObject.activeInHierarchy ? "" : " [INACTIVE - effects off]")}: scale {fx.scale:F2} haze {fx.Haze01:F2} beam {fx.Beam01:F2} flash {fx.Flash01:F2} real '{fx.RealClass}'"
                              : "light effects: none in the scene (one is created automatically in Play mode; edge_upgrade_scene adds it)");
 
             foreach (var p in FindAll<EdgePedestrians>())
@@ -86,6 +86,8 @@ namespace Edge.EditorTools
             if (!fx.link) fx.link = fx.flight && fx.flight.link ? fx.flight.link : Find<UdpLink>();
             if (fx.lamps == null || fx.lamps.Length == 0) fx.lamps = FindAll<LampZone>();
             sb.AppendLine($"EdgeLightEffects wired: bat {(fx.flight ? fx.flight.name : "-")}, cameras {(fx.cams ? fx.cams.name : "-")}, link {(fx.link ? fx.link.name : "-")}, lamps {fx.lamps.Length}");
+            if (!fx.enabled || !fx.gameObject.activeInHierarchy)
+                sb.AppendLine($"WARNING: '{fx.name}' is inactive or disabled, so all light effects are off. Enable it if that is not intended.");
 
             foreach (var c in FindAll<EdgeCyclist>())
             {
