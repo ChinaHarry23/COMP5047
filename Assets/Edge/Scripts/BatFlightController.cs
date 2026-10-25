@@ -50,6 +50,12 @@ namespace Edge
         [Tooltip("Ignore DoseModel instability (light-tolerant variant)")] public bool ignoreDoseInstability = false;
         [Tooltip("Extra vibration/LED level sent to the tag, max-combined with instability")] [Range(0f, 1f)] public float extraVib01 = 0f;
 
+        [Header("Light effects (EdgeLightEffects); 0 = none")]
+        [Tooltip("Vibration pattern from light hitting the bat (lamp hum, beam pulses, flash buzz), max-combined")]
+        [Range(0f, 1f)] public float lightVib01 = 0f;
+        [Tooltip("Steering disturbance from glare and flashes, added to the instability")]
+        [Range(0f, 1f)] public float lightInstability01 = 0f;
+
         [Header("Collision (sphere-cast against obstacles; ground/path included)")]
         public bool collisions = true;
         [Tooltip("Bat collision radius (m). N. gouldi wingspan ~0.25-0.3 m; a bit smaller feels fair")]
@@ -329,8 +335,8 @@ namespace Edge
             if (collisions) inst += FoliageCheck(transform.position, out folSpeed);
             float stunK = Stunned ? Mathf.Clamp01((_stunUntil - Time.time) / Mathf.Max(0.01f, stunSeconds)) : 0f;
             inst += stunK * stunInstability;
-            inst = Mathf.Clamp01(inst + extraInstability01);
-            float vibOut = Mathf.Max(inst, extraVib01);
+            inst = Mathf.Clamp01(inst + extraInstability01 + lightInstability01);
+            float vibOut = Mathf.Max(inst, Mathf.Max(extraVib01, lightVib01));
             if (Time.time < _bumpVibUntil) vibOut = Mathf.Max(vibOut, bumpVib);
             _noiseT += dt;
             float n = Mathf.PerlinNoise(_noiseT * 2f, 0.5f) * 2f - 1f;

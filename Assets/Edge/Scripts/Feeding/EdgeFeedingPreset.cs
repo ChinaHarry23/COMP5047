@@ -58,6 +58,21 @@ namespace Edge.Feeding
         [Header("Flight")]
         public float speedMultiplier = 1f;
 
+        [Header("Ecology: lamps take the food")]
+        [Tooltip("Vacuum-cleaner effect: how strongly lamps pull dark insects into their swarm during the round (0 = off)")]
+        [Range(0f, 1f)] public float lampPull = 0.5f;
+        [Tooltip("Dark insects closer than this to a lamp (m, horizontal) feel its pull")]
+        public float lampPullRange = 22f;
+        [Tooltip("Light-tolerant rival bats feeding at the lamps. -1 = auto: 3 when light hurts you, else 1")]
+        public int rivalBats = -1;
+        public int RivalCount => rivalBats >= 0 ? rivalBats : (lightHurts ? 3 : 1);
+
+        [Header("Light effects (EdgeLightEffects)")]
+        [Tooltip("How much light disturbs this bat: screen, hand and steering. -1 = auto: 1 when light hurts, else 0.12")]
+        public float lightEffectScale = -1f;
+        public float LightEffectScale => lightEffectScale >= 0f ? Mathf.Clamp01(lightEffectScale) : (lightHurts ? 1f : 0.12f);
+        [TextArea] public string playHint = "";
+
         public static EdgeFeedingPreset CreateTolerant()
         {
             var p = CreateInstance<EdgeFeedingPreset>();
@@ -67,6 +82,7 @@ namespace Edge.Feeding
             p.endMessage = "Light-tolerant species can gain from streetlights: moths gather at lamps, and these fast open-air bats exploit them.";
             p.lightHurts = false; p.ignoreDoseInstability = true; p.speedMultiplier = 1.15f;
             p.lampShare = 0.8f; p.hungerDrainPerSec = 0.02f;
+            p.playHint = "Moths crowd the lamps. Fly straight in.";
             return p;
         }
 
@@ -80,6 +96,7 @@ namespace Edge.Feeding
             p.lightHurts = true; p.ignoreDoseInstability = false; p.speedMultiplier = 0.85f;
             p.lampShare = 0.75f; p.hungerDrainPerSec = 0.024f; p.bumpHungerCost = 0.015f; // clutter specialist: agile, small penalty
             p.budgetFmm = 12f; p.doseMultiplier = 2.5f;
+            p.playHint = "Light hurts you. Hunt the scattered moths in the dark.";
             return p;
         }
     }
