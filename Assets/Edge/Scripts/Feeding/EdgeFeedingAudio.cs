@@ -55,19 +55,14 @@ namespace Edge.Feeding
         void Build()
         {
             if (_pool != null) return;
-            if (eatClips == null || eatClips.Length == 0)
-            {
-                _crunch = new AudioClip[Mathf.Max(1, crunchVariants)];
-                for (int i = 0; i < _crunch.Length; i++)
-                    _crunch[i] = MakeClip("EdgeCrunch" + i, SynthCrunch(1000 + 37 * i));
-            }
-            else _crunch = eatClips;
+            BuildCrunches();
             _blips = new AudioClip[Pentatonic.Length];
             for (int i = 0; i < _blips.Length; i++)
                 _blips[i] = MakeClip("EdgeStreak" + i, SynthBlip(streakBaseHz * Pentatonic[i]));
             _ping = MakeClip("EdgePing", SynthPing());
 
-            _pool = new AudioSource[4];
+            // one voice per sound: a still-playing crunch must not pick up the next one's pitch or pan
+            _pool = new AudioSource[8];
             for (int i = 0; i < _pool.Length; i++) _pool[i] = NewSource();
 
             // The buzz runs in OnAudioFilterRead, which taps every source on its GameObject, so it
@@ -77,6 +72,23 @@ namespace Edge.Feeding
             _buzz = go.AddComponent<EdgeFeedingBuzz>();
         }
 
+        void BuildCrunches()
+        {
+            var given = new System.Collections.Generic.List<AudioClip>();
+            if (eatClips != null) foreach (var c in eatClips) if (c) given.Add(c);
+            if (given.Count > 0) { _crunch = given.ToArray(); return; }
+            _crunch = new AudioClip[Mathf.Max(1, crunchVariants)];
+            for (int i = 0; i < _crunch.Length; i++)
+                _crunch[i] = MakeClip("EdgeCrunch" + i, SynthCrunch(1000 + 37 * i));
+        }
+
+        /// Use recorded eat sounds (null entries ignored); empty = the synthesised crunches.
+        public void SetEatClips(AudioClip[] clips)
+        {
+            eatClips = clips;
+            if (_pool != null) BuildCrunches();
+        }
+
         AudioSource NewSource()
         {
             var s = gameObject.AddComponent<AudioSource>();
@@ -84,11 +96,19 @@ namespace Edge.Feeding
             return s;
         }
 
-        AudioSource NextSource()
+        // A free voice if there is one, else the oldest is stolen.
+        void Play(AudioClip clip, float volume, float pitch, float pan)
         {
-            var s = _pool[_next];
-            _next = (_next + 1) % _pool.Length;
-            return s;
+            AudioSource s = null;
+            for (int k = 0; k < _pool.Length && !s; k++)
+            {
+                var c = _pool[(_next + k) % _pool.Length];
+                if (!c.isPlaying) s = c;
+            }
+            if (!s) s = _pool[_next];
+            _next = (System.Array.IndexOf(_pool, s) + 1) % _pool.Length;
+            s.clip = clip; s.volume = volume; s.pitch = pitch; s.panStereo = pan;
+            s.Play();
         }
 
         // ---- API used by EdgeFeedingGame -------------------------------------------------------
@@ -100,21 +120,16 @@ namespace Edge.Feeding
             int k = Random.Range(0, _crunch.Length);
             if (_crunch.Length > 1 && k == _lastCrunch) k = (k + 1 + Random.Range(0, _crunch.Length - 1)) % _crunch.Length;
             _lastCrunch = k;
-            var s = NextSource();
-            s.panStereo = Mathf.Clamp(pan, -1f, 1f) * stereoWidth;
-            s.pitch = 1f + Random.Range(-pitchJitter, pitchJitter);
-            s.PlayOneShot(_crunch[k], eatVolume);
+            float p = Mathf.Clamp(pan, -1f, 1f) * stereoWidth;
+            Play(_crunch[k], eatVolume, 1f + Random.Range(-pitchJitter, pitchJitter), p);
 
             float now = Time.time;
             Streak = now - _lastEat <= streakWindow ? Streak + 1 : 1;
             _lastEat = now;
             if (streakVolume > 0f)
             {
-                var b = NextSource();
-                b.panStereo = s.panStereo * 0.5f;
-                b.pitch = 1f;
                 int note = Mathf.Min(Streak - 1, _blips.Length - 1);
-                b.PlayOneShot(_blips[note], streakVolume * (Streak == 1 ? 0.6f : 1f));
+                Play(_blips[note], streakVolume * (Streak == 1 ? 0.6f : 1f), 1f, p * 0.5f);
             }
         }
 
@@ -133,9 +148,7 @@ namespace Edge.Feeding
         {
             Build();
             if (pingVolume <= 0f || !_ping) return;
-            var s = NextSource();
-            s.panStereo = 0f; s.pitch = 1f;
-            s.PlayOneShot(_ping, pingVolume);
+            Play(_ping, pingVolume, 1f, 0f);
         }
 
         public void ResetStreak() { Streak = 0; _lastEat = -100f; }

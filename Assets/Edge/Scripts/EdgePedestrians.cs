@@ -253,6 +253,8 @@ namespace Edge
             }
             else if (_legacy[i] != null) { clip = _legacy[i].clip; scale = agents[i].lossyScale.y; }
             _measured[i] = true;
+            // nothing animated, or a figure meant to stand still: leave its speed exactly as built
+            if ((!_an[i] && _legacy[i] == null) || _cruise[i] <= 0f) return;
             float builder = _natural[i];
             if (clip)
             {
@@ -384,6 +386,7 @@ namespace Edge
             int dir = directions[i];
             float t = Time.time;
             float cruise = _cruise[i] * (1f + speedDrift * (2f * Mathf.PerlinNoise(t * 0.07f + _seed[i], _seed[i]) - 1f));
+            if (_measured[i] && !_cyc[i] && _natural[i] > 0f) cruise = Mathf.Min(cruise, _natural[i] * playbackRateRange.y);   // drift never outruns the clip
             float want = cruise, targetLat = keepLeft;
 
             float acc = accel * (_cyc[i] ? 0.8f : IsRunner(i) ? 1.3f : 1f);

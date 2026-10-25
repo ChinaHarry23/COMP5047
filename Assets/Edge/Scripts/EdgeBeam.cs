@@ -18,6 +18,9 @@ namespace Edge
 
         public Kind kind = Kind.Torch;
 
+        /// Eased glare on the bat (written by EdgeLightEffects), so occlusion edges fade instead of popping.
+        [System.NonSerialized] public float glare;
+
         Light _light;
         public Light Light => _light ? _light : (_light = GetComponent<Light>());
 

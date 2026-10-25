@@ -25,7 +25,13 @@ namespace Edge.Feeding
             src.playOnAwake = false; src.spatialBlend = 0f; src.volume = 1f; src.loop = true;
             // a silent carrier keeps the source playing so the filter keeps being called
             src.clip = AudioClip.Create("EdgeBuzzCarrier", 44100, 1, 44100, false);
-            src.Play();
+        }
+
+        // (Re)start on every enable: a source stopped by deactivation would never call the filter again.
+        void OnEnable()
+        {
+            var src = GetComponent<AudioSource>();
+            if (src && src.clip && !src.isPlaying) src.Play();
         }
 
         void OnAudioFilterRead(float[] data, int channels)

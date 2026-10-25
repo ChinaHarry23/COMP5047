@@ -335,8 +335,10 @@ namespace Edge
             if (collisions) inst += FoliageCheck(transform.position, out folSpeed);
             float stunK = Stunned ? Mathf.Clamp01((_stunUntil - Time.time) / Mathf.Max(0.01f, stunSeconds)) : 0f;
             inst += stunK * stunInstability;
-            inst = Mathf.Clamp01(inst + extraInstability01 + lightInstability01);
-            float vibOut = Mathf.Max(inst, Mathf.Max(extraVib01, lightVib01));
+            // light's steering disturbance stays out of the hand: EdgeLightEffects sends its own patterns
+            float instBase = Mathf.Clamp01(inst + extraInstability01);
+            inst = Mathf.Clamp01(instBase + lightInstability01);
+            float vibOut = Mathf.Max(instBase, Mathf.Max(extraVib01, lightVib01));
             if (Time.time < _bumpVibUntil) vibOut = Mathf.Max(vibOut, bumpVib);
             _noiseT += dt;
             float n = Mathf.PerlinNoise(_noiseT * 2f, 0.5f) * 2f - 1f;

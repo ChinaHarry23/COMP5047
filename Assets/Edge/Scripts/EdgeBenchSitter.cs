@@ -98,7 +98,7 @@ namespace Edge
         void FlashPhotos()
         {
             var fx = EdgeLightEffects.Instance;
-            if (!fx || !fx.flight || (phoneLight && !phoneLight.enabled)) { _photoAt = -1f; return; }
+            if (!fx || !fx.flight || !EdgeBeam.IsNight(nightLuxMax)) { _photoAt = -1f; return; }
             float now = Time.time;
             Transform batT = fx.flight.transform;
             Transform me = body ? body : transform;

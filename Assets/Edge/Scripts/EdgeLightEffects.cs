@@ -45,6 +45,8 @@ namespace Edge
         public float beamPulseHz = 4f;
         [Range(0f, 1f)] public float beamInstability = 0.45f;
         [Tooltip("Trees and posts block beams (one linecast per lit beam)")] public bool beamOcclusion = true;
+        [Tooltip("How fast each beam's glare fades in/out (per s), so a trunk passing through a beam or a wavering classifier never strobes")]
+        public float glareFadePerSec = 3f;
 
         [Header("Phone flash: white-out")]
         public Color flashColor = new Color(1f, 1f, 0.97f);
@@ -84,7 +86,7 @@ namespace Edge
         int _glowN;
         Texture2D _glowTex, _streakTex;
         float _flashAt = -100f, _flashK, _buzzUntil = -100f, _bumpAt = -100f;
-        float _luxBase = -1f, _lastLux, _realAt = -100f, _realConf;
+        float _luxBase = -1f, _lastLux, _realAt = -100f, _realConf, _realBeam;
         string _beamKind = "torch";
         bool _wasBeam, _wasLamp;
         Transform _shaken;
@@ -167,7 +169,8 @@ namespace Edge
                 if (_luxBase < 0f) _luxBase = lux;
                 float thresh = Mathf.Max(luxFlashMin, _luxBase * luxFlashRatio);
                 if (lux >= thresh && _lastLux < thresh) Flash(Mathf.Clamp01(lux / (thresh * 4f)) * 0.5f + 0.5f);
-                else if (lux < thresh) _luxBase = Mathf.Lerp(_luxBase, lux, 0.03f);   // ~3 s at 10 Hz
+                // ~3 s at 10 Hz below the threshold; slowly above it too, so a room that stays brighter re-arms
+                _luxBase = Mathf.Lerp(_luxBase, lux, lux < thresh ? 0.03f : 0.005f);
                 _lastLux = lux;
             }
         }
@@ -199,9 +202,15 @@ namespace Edge
 
         void LateUpdate()
         {
-            float t = Time.time;
+            float t = Time.time, dt = Time.deltaTime;
             Vector3 bat = flight ? flight.transform.position : transform.position;
             var cam = ActiveCamera();
+
+            // flash envelope (hold, then ease out) and the shake first, so glows are projected
+            // through the camera as it will render
+            float ft = t - _flashAt;
+            Flash01 = ft < flashHold ? _flashK : _flashK * Mathf.Pow(Mathf.Clamp01(1f - (ft - flashHold) / Mathf.Max(0.05f, flashFade)), 2f);
+            Shake(cam, t);
             _glowN = 0;
 
             // street lamps: same inverse-square law as LampZone / the feeding game
@@ -219,33 +228,31 @@ namespace Edge
                 }
             float haze = 1f - Mathf.Exp(-lux / Mathf.Max(0.01f, hazeLux));
             if (RealClass == "lamp") haze = Mathf.Max(haze, 0.6f * _realConf);
-            Haze01 = Mathf.MoveTowards(Haze01, haze, 2f * Time.deltaTime);   // eyes adapt, no pops
+            Haze01 = Mathf.MoveTowards(Haze01, haze, 2f * dt);   // eyes adapt, no pops
 
-            // torches and bike lights
+            // torches and bike lights: each beam's glare eases in and out, never pops
             float beam = 0f;
             foreach (var b in EdgeBeam.All)
             {
                 float e = b.Exposure(bat);
-                if (e <= 0.01f) continue;
-                if (beamOcclusion && Physics.Linecast(b.transform.position, bat, out var hit, ~(1 << 2), QueryTriggerInteraction.Ignore)
-                    && (!flight || !hit.transform.IsChildOf(flight.transform))) continue;
-                if (e > beam) { beam = e; _beamKind = b.kind == EdgeBeam.Kind.Bike ? "bike" : "torch"; }
-                AddGlow(cam, b.transform.position, e);
+                if (e > 0.01f && beamOcclusion && Physics.Linecast(b.transform.position, bat, out var hit, ~(1 << 2), QueryTriggerInteraction.Ignore)
+                    && (!flight || !hit.transform.IsChildOf(flight.transform))) e = 0f;
+                b.glare = Mathf.MoveTowards(b.glare, e, glareFadePerSec * dt);
+                if (b.glare <= 0.01f) continue;
+                if (b.glare > beam) { beam = b.glare; _beamKind = b.kind == EdgeBeam.Kind.Bike ? "bike" : "torch"; }
+                AddGlow(cam, b.transform.position, b.glare);
             }
-            if (RealClass == "bike" || RealClass == "torch")
+            // real beam: no position in the scene, so it sweeps across the view; eased like the others
+            bool realBeam = RealClass == "bike" || RealClass == "torch";
+            _realBeam = Mathf.MoveTowards(_realBeam, realBeam ? _realConf : 0f, 2f * dt);
+            if (_realBeam > 0.01f)
             {
-                // real beam: no position in the scene, so it sweeps across the view
-                float k = _realConf;
-                beam = Mathf.Max(beam, k);
-                _beamKind = RealClass;
+                beam = Mathf.Max(beam, _realBeam);
+                if (realBeam) _beamKind = RealClass;
                 if (cam && _glowN < _glows.Length)
-                    _glows[_glowN++] = new Glow { screen = new Vector2((0.5f + 0.42f * Mathf.Sin(t * 1.3f)) * Screen.width, Screen.height * 0.42f), k = k };
+                    _glows[_glowN++] = new Glow { screen = new Vector2((0.5f + 0.42f * Mathf.Sin(t * 1.3f)) * Screen.width, Screen.height * 0.42f), k = _realBeam };
             }
-            Beam01 = Mathf.MoveTowards(Beam01, beam, 4f * Time.deltaTime);
-
-            // flash envelope: hold, then ease out
-            float ft = t - _flashAt;
-            Flash01 = ft < flashHold ? _flashK : _flashK * Mathf.Pow(Mathf.Clamp01(1f - (ft - flashHold) / Mathf.Max(0.05f, flashFade)), 2f);
+            Beam01 = Mathf.MoveTowards(Beam01, beam, 4f * dt);
 
             // onset events
             if (InBeam && !_wasBeam) LightHit?.Invoke(_beamKind);
@@ -263,8 +270,6 @@ namespace Edge
                 flight.lightVib01 = vib * scale;
                 flight.lightInstability01 = Mathf.Max(Beam01 * beamInstability, Flash01 * flashInstability) * scale;
             }
-
-            Shake(cam, t);
         }
 
         void Shake(Camera cam, float t)
@@ -290,7 +295,7 @@ namespace Edge
         // ---- overlay -------------------------------------------------------------------------
         void OnGUI()
         {
-            if (Event.current.type != EventType.Repaint || scale <= 0f) return;
+            if (Event.current.type != EventType.Repaint) return;   // scale 0 still shows the flash minimum below
             GUI.depth = 10;   // behind the HUDs (depth 0)
             var full = new Rect(0f, 0f, Screen.width, Screen.height);
             var white = Texture2D.whiteTexture;

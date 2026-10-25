@@ -288,11 +288,10 @@ namespace Edge.Feeding
         {
             if (!playSound) return;
             _sfx = GetComponent<EdgeFeedingAudio>();
-            if (!_sfx)
-            {
-                _sfx = gameObject.AddComponent<EdgeFeedingAudio>();
-                if (eatClips != null && eatClips.Length > 0) _sfx.eatClips = eatClips;
-            }
+            if (!_sfx) _sfx = gameObject.AddComponent<EdgeFeedingAudio>();
+            bool any = false;
+            if (eatClips != null) foreach (var c in eatClips) any |= c;
+            if (any) _sfx.SetEatClips(eatClips);   // this game's clips win, also over an existing component's
             _sfx.eatVolume = eatVolume;
         }
 
