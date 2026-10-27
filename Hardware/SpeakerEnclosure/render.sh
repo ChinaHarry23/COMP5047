@@ -19,7 +19,7 @@ if "$OPENSCAD" --help 2>&1 | grep -q -- '--backend'; then BACKEND=(--backend=man
 mkdir -p stl img
 for p in tray bezel coupon; do
     echo "== $p"
-    "$OPENSCAD" "${BACKEND[@]}" -o "stl/speaker_enclosure_$p.stl" -D "part=\"$p\"" speaker_enclosure.scad 2>&1 \
+    "$OPENSCAD" "${BACKEND[@]}" --export-format binstl -o "stl/speaker_enclosure_$p.stl" -D "part=\"$p\"" speaker_enclosure.scad 2>&1 \
         | grep -E 'ECHO|WARNING|ERROR|assert' || true
 done
 

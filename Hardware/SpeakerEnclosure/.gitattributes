@@ -1,0 +1,6 @@
+# The top-level Unity .gitattributes sends *.png and *.stl to Git LFS. The files in
+# this folder are small (preview renders, three binary STLs) and must be usable
+# without git-lfs: the README's images render on GitHub only when stored as plain
+# blobs, and so does GitHub's STL viewer. Store them in git directly.
+*.png   -filter -diff -merge -text
+*.stl   -filter -diff -merge -text
