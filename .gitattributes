@@ -169,3 +169,6 @@ Packages/packages-lock.json linguist-generated
 
 # Exceptions for .asset files such as lightning pre-baking
 LightingData.asset     binary
+
+# The UI fonts are small; store them directly so a clone without git-lfs still gets real fonts
+Assets/Edge/Resources/EdgeUI/*.ttf -filter binary

@@ -358,6 +358,7 @@ namespace Edge.Narration
             while (_history.Count > Mathf.Max(1, historySize)) _history.RemoveAt(0);
             _subtitle = line;
             _subtitleUntil = Time.time + subtitleSeconds;
+            if (showSubtitle && Edge.UI.EdgeUiView.Instance) Edge.UI.EdgeUiView.Instance.ShowSubtitle(line, subtitleSeconds);
             Debug.Log($"[EDGE Narration] [{source}] {line}");
             _voice?.Speak(line);
         }
@@ -547,6 +548,8 @@ namespace Edge.Narration
         void OnGUI()
         {
             if (!showSubtitle || Time.time > _subtitleUntil || string.IsNullOrEmpty(_subtitle)) return;
+            var ui = Edge.UI.EdgeUiView.Instance;
+            if (ui && ui.isActiveAndEnabled) return;   // shown by the themed UI
             if (_style == null)
             {
                 _style = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, wordWrap = true, fontSize = 18 };

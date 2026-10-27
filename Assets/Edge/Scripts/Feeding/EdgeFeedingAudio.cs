@@ -7,10 +7,11 @@ namespace Edge.Feeding
     //    rendered as several variants that are never repeated back to back, panned towards the side
     //    the moth was on. Drop recorded clips into eatClips to use those instead.
     //  - Streak: a soft pentatonic blip that climbs while moths are eaten in quick succession.
-    //  - Feeding buzz: what a bat detector plays as a bat closes on prey. A click train whose rate
-    //    climbs from ~12 Hz (approach) to ~170 Hz (terminal buzz) as the nearest moth ahead closes in.
-    //    Generated live in OnAudioFilterRead so the rate follows the distance smoothly.
-    //  - Ping: a quiet three-click chirp for the echolocation cue.
+    //  - Approach calls: short downward FM chirps, as time-expanded bat recordings sound, that speed up
+    //    into a soft terminal trill as the nearest moth ahead closes in; each call's echo slides in towards
+    //    it with the distance (EdgeBatCallSynth, live in OnAudioFilterRead). Silent when nothing is being
+    //    approached, and for a moment after each catch, as real bats pause.
+    //  - Ping: one call and its echoes returning, fainter and darker, from the moths around.
     // All one-shots are 2D (the listener is the bat); level and pan are set per play.
     public class EdgeFeedingAudio : MonoBehaviour
     {
@@ -28,9 +29,9 @@ namespace Edge.Feeding
         public float streakWindow = 1.8f;
         public float streakBaseHz = 660f;
 
-        [Header("Feeding buzz (approach)")]
-        [Range(0f, 1f)] public float buzzVolume = 0.14f;
-        public Vector2 buzzRateHz = new Vector2(12f, 170f);
+        [Header("Approach calls")]
+        [Range(0f, 1f)] public float buzzVolume = 0.085f;
+        [Tooltip("Calls pause this long after a catch (s)")] public float postCatchPause = 0.35f;
 
         [Header("Echolocation ping")]
         [Range(0f, 1f)] public float pingVolume = 0.1f;
@@ -45,7 +46,7 @@ namespace Edge.Feeding
         AudioClip _ping;
         AudioSource[] _pool;
         int _next, _lastCrunch = -1, _eatRing;
-        float _lastEat = -100f, _lastBlip = -100f;
+        float _lastEat = -100f, _lastBlip = -100f, _quietUntil = -100f;
         readonly float[] _eatTimes = { -100f, -100f, -100f, -100f, -100f, -100f, -100f, -100f };
 
         EdgeFeedingBuzz _buzz;
@@ -124,6 +125,7 @@ namespace Edge.Feeding
             if (_crunch.Length > 1 && k == _lastCrunch) k = (k + 1 + Random.Range(0, _crunch.Length - 1)) % _crunch.Length;
             _lastCrunch = k;
             float now = Time.time;
+            _quietUntil = now + postCatchPause;
             // flying through a swarm: catches inside ~120 ms share the loudness instead of stacking past full scale
             int recent = 0;
             foreach (float e in _eatTimes) if (now - e < 0.12f) recent++;
@@ -146,9 +148,9 @@ namespace Edge.Feeding
         {
             Build();
             if (!_buzz) return;
-            closeness = Mathf.Clamp01(closeness);
-            _buzz.rateHz = Mathf.Lerp(buzzRateHz.x, buzzRateHz.y, closeness * closeness);
-            _buzz.level = closeness <= 0f ? 0f : buzzVolume * Mathf.SmoothStep(0f, 1f, closeness / 0.2f);
+            closeness = Time.time < _quietUntil ? 0f : Mathf.Clamp01(closeness);
+            _buzz.closeness = closeness;
+            _buzz.level = closeness <= 0f ? 0f : buzzVolume * Mathf.SmoothStep(0f, 1f, closeness / 0.25f);
             _buzz.pan = Mathf.Clamp(pan, -1f, 1f) * stereoWidth;
         }
 
@@ -275,22 +277,46 @@ namespace Edge.Feeding
             return d;
         }
 
+        // Echolocation cue: one call, then its echoes from the moths around, each further away so
+        // later, fainter and darker.
         public static float[] SynthPing()
         {
-            int n = (int)(Sr * 0.12f);
+            int n = (int)(Sr * 0.42f);
             var d = new float[n];
-            for (int c = 0; c < 3; c++)
+            float[] call = Chirp(6000f, 2400f, 0.028f);
+            Mix(d, call, 0.004f, 1f);
+            float[] at = { 0.07f, 0.12f, 0.185f, 0.27f }, gain = { 0.35f, 0.25f, 0.17f, 0.1f }, lp = { 3500f, 3000f, 2500f, 2000f };
+            for (int k = 0; k < at.Length; k++)
             {
-                int i0 = (int)((0.004f + 0.028f * c) * Sr);
-                float hz = 2300f - 250f * c, amp = 1f - 0.25f * c, ph = 0f;
-                for (int j = 0; i0 + j < n && j < Sr * 0.012f; j++)
-                {
-                    ph += 2f * Mathf.PI * hz / Sr;
-                    d[i0 + j] += amp * Env(j / (float)Sr, 0.0002f, 0.0016f) * Mathf.Sin(ph);
-                }
+                var echo = (float[])call.Clone();
+                var f = Biquad.LowPass(lp[k], 0.7f);
+                for (int i = 0; i < echo.Length; i++) echo[i] = f.Run(echo[i]);
+                Mix(d, echo, 0.004f + at[k], gain[k]);
             }
-            Finish(d, 0.7f, 0.01f);
+            Finish(d, 0.7f, 0.02f);
             return d;
+        }
+
+        // A downward exponential FM sweep with a smooth (sin^2) envelope and a little 2nd harmonic.
+        public static float[] Chirp(float f0, float f1, float seconds)
+        {
+            int n = (int)(Sr * seconds);
+            var d = new float[n];
+            float f = f0, mul = Mathf.Pow(f1 / f0, 1f / n), ph = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                float w = Mathf.Sin(Mathf.PI * i / n);
+                ph += 2f * Mathf.PI * f / Sr;
+                d[i] = w * w * (Mathf.Sin(ph) + 0.18f * Mathf.Sin(2f * ph));
+                f *= mul;
+            }
+            return d;
+        }
+
+        static void Mix(float[] into, float[] src, float atSeconds, float gain)
+        {
+            int i0 = (int)(atSeconds * Sr);
+            for (int i = 0; i < src.Length && i0 + i < into.Length; i++) into[i0 + i] += gain * src[i];
         }
 
         // DC block, gentle saturation, de-click fades, peak-normalise.

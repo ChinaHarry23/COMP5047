@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using Edge.UI;
 using UnityEngine.InputSystem;
 
 namespace Edge.Feeding
@@ -71,6 +72,10 @@ namespace Edge.Feeding
         public float hintFadeSeconds = 3f;
         [Tooltip("Results screen idle this long (s) = the next visitor: back to the start screen, two-bat comparison cleared (0 = never)")]
         public float newVisitAfterSeconds = 45f;
+
+        [Header("Screens")]
+        [Tooltip("Bat-themed uGUI screens (EdgeUiView). Off = the plain IMGUI text screens")]
+        public bool themedUi = true;
 
         // Hooks (e.g. EdgeNarrator). Optional; nothing subscribes by default.
         public event Action<int> InsectEaten;
@@ -164,6 +169,7 @@ namespace Edge.Feeding
             FindLamps();
             BuildVisuals();
             BuildAudio();
+            if (themedUi) _ui = EdgeUiView.Create();
             if (showStartScreen) { CurrentState = State.StartScreen; ApplyFlightMods(false); SpawnAll(); ApplyHud(); }
             else Restart();
         }
@@ -172,7 +178,10 @@ namespace Edge.Feeding
         {
             if (flight) flight.Bumped += OnBumped;
             if (_mesh) { ApplyFlightMods(CurrentState == State.Playing); ApplyHud(); }   // re-enabled after Start: take the bat back
+            if (_ui) _ui.gameObject.SetActive(true);
         }
+
+        void OnDestroy() { if (_ui) Destroy(_ui.gameObject); }
 
         void OnBumped(Vector3 point, Vector3 normal, Collider c)
         {
@@ -188,6 +197,7 @@ namespace Edge.Feeding
             if (exhibitHud) { exhibitHud.compact = false; exhibitHud.hideBudget = false; }
             if (Fx) Fx.scale = 1f;
             if (_sfx) _sfx.SetApproach(0f, 0f);
+            if (_ui) _ui.gameObject.SetActive(false);
         }
 
         // ---- setup -------------------------------------------------------------
@@ -496,6 +506,7 @@ namespace Edge.Feeding
             if (CurrentState == State.Playing) Tick(dt);
             else if (_sfx) _sfx.SetApproach(0f, 0f);
             Draw();
+            if (_ui) DrawUi();
         }
 
         float PanOf(Vector3 rel)
@@ -801,8 +812,82 @@ namespace Edge.Feeding
             return Camera.main;
         }
 
+        string Verdict(EdgeFeedingPreset p)
+        {
+            var rt = _results[(int)Variant.LightTolerant];
+            var ra = _results[(int)Variant.LightAverse];
+            return !(rt.played && ra.played) ? p.endMessage
+                : rt.moths > ra.moths
+                    ? $"Same night, same insects: the light-tolerant bat caught {rt.moths}, the light-averse bat {ra.moths}. The lamps decided who ate."
+                    : $"The light-averse bat found {ra.moths} in the dark this time (light-tolerant: {rt.moths}). On most lit nights the lamps take that food first.";
+        }
+
+        // ---- themed screens (uGUI) ------------------------------------------------------
+        EdgeUiView _ui;
+        readonly UiList _uiNodes = new UiList();
+        readonly Vector3[] _floatBuf = new Vector3[32];
+
+        BatCard Card(EdgeFeedingPreset preset, Variant v)
+        {
+            string blurb = preset ? preset.speciesBlurb : "";
+            int colon = blurb.IndexOf(':');
+            string desc = colon >= 0 ? blurb.Substring(colon + 1).Trim() : "";
+            if (desc.Length > 0) desc = char.ToUpperInvariant(desc[0]) + desc.Substring(1);
+            var r = _results[(int)v];
+            return new BatCard
+            {
+                name = preset ? preset.displayName : v.ToString(),
+                species = colon >= 0 ? blurb.Substring(0, colon).Trim() : blurb,
+                desc = desc,
+                stats = new RoundStats
+                {
+                    played = r.played, moths = r.moths, best = _best[(int)v], darkStart = r.darkStart, darkEnd = r.darkEnd,
+                    rivals = r.rivals, lightSeconds = r.lightSeconds,
+                },
+            };
+        }
+
+        void DrawUi()
+        {
+            var p = Preset;
+            float now = Time.unscaledTime, age = now - _playStart;
+            var m = new HudModel
+            {
+                screen = CurrentState == State.Playing ? HudScreen.Playing : CurrentState == State.StartScreen ? HudScreen.Start : HudScreen.Results,
+                time = now,
+                tolerant = Card(tolerantPreset, Variant.LightTolerant),
+                averse = Card(aversePreset, Variant.LightAverse),
+                averseCurrent = variant == Variant.LightAverse,
+                score = Score, timeLeft = TimeLeft, roundSeconds = p.roundSeconds, hunger01 = Hunger01, budget01 = Budget01,
+                scorePulse01 = Mathf.Clamp01(1f - (now - _scorePulse) / 0.35f),
+                lightHurts = p.lightHurts, inLight = InLight, echo = p.EchoEnabled,
+                hint = p.displayName + ": " + (string.IsNullOrEmpty(p.playHint) ? "fly through moths to eat." : p.playHint),
+                hintAlpha = CurrentState == State.Playing ? Mathf.Clamp01(hintFadeSeconds + 1f - age) : 0f,   // hold, then a 1 s fade
+                endReason = EndReason, verdict = Verdict(p),
+                debug = DebugHud ? $"{p.displayName} | lux {LuxAtBat:F2} {(InLight ? "LIT" : "dark")} | hunger {Hunger01 * 100f:F0}% budget {Budget01 * 100f:F0}% | at lamps {LampShare01 * 100f:F0}% rivals {RivalScore}\n[1][2] variant  [R] restart  [E] ping  [H] HUD" : null,
+                subtitle = _ui.Subtitle, subtitleAlpha = _ui.SubtitleAlpha,
+            };
+            int n = 0;
+            var cam = ActiveCamera();
+            if (cam)
+                foreach (var f in _floaters)
+                {
+                    if (n >= _floatBuf.Length) break;
+                    Vector3 sp = cam.WorldToScreenPoint(f.pos);
+                    if (sp.z <= 0.1f) continue;
+                    Vector2 c = _ui.ScreenToCanvas(sp);
+                    _floatBuf[n++] = new Vector3(c.x, c.y, f.t / FloatLife);
+                }
+            m.floaters = _floatBuf; m.floaterCount = n;
+            _uiNodes.Clear();
+            Vector2 size = _ui.Size;
+            EdgeFeedingHud.Build(_uiNodes, m, size.x, size.y);
+            _ui.Apply(_uiNodes.nodes);
+        }
+
         void OnGUI()
         {
+            if (_ui && _ui.isActiveAndEnabled) return;   // the themed screens are showing
             if (_big == null)
             {
                 _big = new GUIStyle(GUI.skin.label) { fontSize = 24, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = true };
@@ -885,11 +970,7 @@ namespace Edge.Feeding
             Column(new Rect(panel.x + 60f + cw, cy, cw, 124f), aversePreset, Variant.LightAverse, white);
             var rt = _results[(int)Variant.LightTolerant];
             var ra = _results[(int)Variant.LightAverse];
-            string verdict = !(rt.played && ra.played) ? p.endMessage
-                : rt.moths > ra.moths
-                    ? $"Same night, same insects: the light-tolerant bat caught {rt.moths}, the light-averse bat {ra.moths}. The lamps decided who ate."
-                    : $"The light-averse bat found {ra.moths} in the dark this time (light-tolerant: {rt.moths}). On most lit nights the lamps take that food first.";
-            GUI.Label(new Rect(panel.x + 30f, cy + 132f, panel.width - 60f, 64f), verdict, _wrap);
+            GUI.Label(new Rect(panel.x + 30f, cy + 132f, panel.width - 60f, 64f), Verdict(p), _wrap);
             GUI.Label(new Rect(panel.x + 30f, cy + 200f, panel.width - 60f, 44f),
                 "Keep corridors dark. Where light is needed, use less of it: warmer, pointed down, shielded, and on for less time. " +
                 "— National Light Pollution Guidelines for Wildlife", _guide);
