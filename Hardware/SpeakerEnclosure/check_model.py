@@ -2,17 +2,20 @@
 """Mesh checks for the speaker enclosure STLs.
 
 Usage:
-    python3 check_model.py --parts tray.stl frame.stl ... [--speaker speaker_envelope.stl]
-                           [--min-wall 1.2] [--bed 180]
+    # print-ready parts: watertight + bed-size checks only
+    python3 check_model.py --parts stl/speaker_enclosure_tray.stl stl/speaker_enclosure_bezel.stl ...
 
-All STLs must be in the same (assembly) coordinate frame, i.e. rendered from the
-same .scad with the parts placed as assembled. For every part it reports whether the
-mesh is watertight, its volume and bounding box, and the intersection volume with
-every other part and with the speaker envelope: anything but ~0 is an interference.
+    # assembly check: parts rendered IN PLACE (part="tray", "bezel_inplace") against the
+    # speaker (part="envelope" or part="speaker"); every pair must have ~0 intersection
+    python3 check_model.py --assembly --parts tray.stl bezel_inplace.stl --speaker envelope.stl
+
+For every part it reports whether the mesh is watertight, its volume and bounding box;
+with --assembly also the intersection volume with every other part and with the
+speaker: anything but ~0 is an interference.
 
 Requires: trimesh, manifold3d (pip install trimesh manifold3d).
-Exit status 1 if any part is not watertight or any pair interferes by more than
-`--tol` mm^3.
+Exit status 1 if any part is not watertight, exceeds the bed, or (with --assembly) any
+pair interferes by more than `--tol` mm^3.
 """
 import argparse
 import sys
@@ -39,7 +42,9 @@ def load(path: str) -> trimesh.Trimesh:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--parts", nargs="+", required=True)
-    ap.add_argument("--speaker", help="STL of the speaker envelope in assembly coordinates")
+    ap.add_argument("--assembly", action="store_true",
+                    help="parts are in assembly coordinates: also test pairwise interference")
+    ap.add_argument("--speaker", help="STL of the speaker envelope in assembly coordinates (implies --assembly)")
     ap.add_argument("--tol", type=float, default=0.5, help="allowed interference volume, mm^3")
     ap.add_argument("--bed", type=float, default=180, help="print bed side, mm")
     args = ap.parse_args()
@@ -61,13 +66,14 @@ def main() -> int:
 
     mans = {p: to_manifold(m) for p, m in meshes.items()}
     names = list(mans)
-    for i, a in enumerate(names):
-        for b in names[i + 1:]:
-            v = (mans[a] ^ mans[b]).volume()
-            flag = "" if v <= args.tol else "   !! INTERFERENCE"
-            print(f"{a} ∩ {b}: {v:.2f} mm3{flag}")
-            if v > args.tol:
-                ok = False
+    if args.assembly or args.speaker:
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                v = (mans[a] ^ mans[b]).volume()
+                flag = "" if v <= args.tol else "   !! INTERFERENCE"
+                print(f"{a} ∩ {b}: {v:.2f} mm3{flag}")
+                if v > args.tol:
+                    ok = False
 
     if args.speaker:
         spk = to_manifold(load(args.speaker))
