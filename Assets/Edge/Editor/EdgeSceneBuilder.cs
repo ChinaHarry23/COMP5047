@@ -1579,8 +1579,27 @@ namespace Edge.EditorTools
             return min < float.MaxValue ? min : origin.y;
         }
 
+        // The two canopy trees are 1-2 M triangles each at Mesh LOD 0 and automatic Mesh LOD selection
+        // keeps them there, which made them ~98% of every frame. Bias 2 starts them two levels down
+        // (about -70% triangles for the scene).
+        internal const float CanopyMeshLodBias = 2f;
+
+        internal static int ApplyCanopyLodBias(GameObject root)
+        {
+            int n = 0;
+            foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var m = r.GetComponent<MeshFilter>() ? r.GetComponent<MeshFilter>().sharedMesh : null;
+                if (!m || m.lodCount < 2 || !(m.name.StartsWith("island_tree_02") || m.name.StartsWith("tree_small_02"))) continue;
+                r.meshLodSelectionBias = CanopyMeshLodBias;
+                n++;
+            }
+            return n;
+        }
+
         static void AddCull(GameObject wrapper, float cullScreenHeight)
         {
+            ApplyCanopyLodBias(wrapper);
             var existing = wrapper.GetComponentInChildren<LODGroup>(true);
             if (existing)
             {

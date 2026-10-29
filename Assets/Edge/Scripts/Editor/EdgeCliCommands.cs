@@ -65,7 +65,7 @@ namespace Edge.EditorTools
             return ac && ac.layers.Length > 0 ? (ac.layers[0].iKPass ? "on" : "OFF") : "?";
         }
 
-        [CliCommand("edge_upgrade_scene", "EDGE: add and wire EdgeLightEffects, make sure cyclist controllers have IK Pass, then save the open scene", Tags = new[] { "edge" })]
+        [CliCommand("edge_upgrade_scene", "EDGE: add and wire EdgeLightEffects, make sure cyclist controllers have IK Pass, set the canopy trees' Mesh LOD bias, then save the open scene", Tags = new[] { "edge" })]
         public static string UpgradeScene([CliArg("save", "Save the scene afterwards (default true)")] bool save = true)
         {
             if (EditorApplication.isPlaying) return "Exit Play mode first (unity command editor_stop).";
@@ -100,6 +100,10 @@ namespace Edge.EditorTools
                 EditorUtility.SetDirty(ac);
                 sb.AppendLine($"{c.name}: enabled IK Pass on '{ac.name}' (needed for the seated rider pose)");
             }
+
+            int trees = 0;
+            foreach (var root in scene.GetRootGameObjects()) trees += EdgeSceneBuilder.ApplyCanopyLodBias(root);
+            sb.AppendLine($"canopy trees: Mesh LOD bias {EdgeSceneBuilder.CanopyMeshLodBias} on {trees} renderers");
 
             EditorSceneManager.MarkSceneDirty(scene);
             if (save)
