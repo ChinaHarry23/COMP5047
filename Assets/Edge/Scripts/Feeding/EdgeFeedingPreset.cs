@@ -35,11 +35,11 @@ namespace Edge.Feeding
 
         public enum EchoMode { Auto, On, Off }
         [Header("Echolocation cue (briefly outlines nearby moths)")]
-        [Tooltip("Auto = on when light hurts (light-averse variant)")] public EchoMode echoMode = EchoMode.Auto;
+        [Tooltip("Auto = on when light hurts (light-averse variant)")] public EchoMode echoMode = EchoMode.On;
         public bool EchoEnabled => echoMode == EchoMode.On || (echoMode == EchoMode.Auto && lightHurts);
-        [Tooltip("Seconds between automatic pings (0 = key only)")] public float echoInterval = 2.5f;
-        public float echoRadius = 14f;
-        public float echoDuration = 0.6f;
+        [Tooltip("Seconds between automatic pings (0 = key/handset button only)")] public float echoInterval = 0f;
+        public float echoRadius = 20f;
+        public float echoDuration = 1.5f;
 
         [Header("Light")]
         [Tooltip("Light hurts? false = light-tolerant (no budget)")] public bool lightHurts = false;
@@ -50,6 +50,8 @@ namespace Edge.Feeding
         [Tooltip("Speed multiplier while in light")] public float litSpeedMultiplier = 0.7f;
         [Tooltip("Extra steering instability while in light, 0..1")] [Range(0f, 1f)] public float litInstability = 0.5f;
         [Tooltip("Hunger 0..1 lost per second while in light (stress)")] public float litHungerDrainPerSec = 0.02f;
+        [Tooltip("Seconds after the round starts before light hurts: the bat starts on the lit path and needs a moment to leave it")]
+        public float lightGraceSeconds = 4f;
         [Tooltip("Ignore DoseModel instability for this variant")] public bool ignoreDoseInstability = true;
 
         [Header("Collisions")]
@@ -68,9 +70,15 @@ namespace Edge.Feeding
         public int RivalCount => rivalBats >= 0 ? rivalBats : (lightHurts ? 3 : 1);
 
         [Header("Light effects (EdgeLightEffects)")]
-        [Tooltip("How much light disturbs this bat: screen, hand and steering. -1 = auto: 1 when light hurts, else 0.12")]
+        [Tooltip("How much light disturbs this bat: screen, hand and steering. -1 = auto: 1 when light hurts, else 0 (the overlays blend in linear space, so even a few percent greys out the night)")]
         public float lightEffectScale = -1f;
-        public float LightEffectScale => lightEffectScale >= 0f ? Mathf.Clamp01(lightEffectScale) : (lightHurts ? 1f : 0.12f);
+        public float LightEffectScale => lightEffectScale >= 0f ? Mathf.Clamp01(lightEffectScale) : (lightHurts ? 1f : 0f);
+        [Tooltip("Street lamp glow and light as this bat sees it (visual only; the lux and dose maths are unchanged). -1 = auto: 1 when light hurts, else 0.35")]
+        public float lampBrightness = -1f;
+        public float LampBrightness => lampBrightness >= 0f ? Mathf.Clamp01(lampBrightness) : (lightHurts ? 1f : 0.35f);
+        [Tooltip("Lamp glow as this bat sees it: the lit fog and the bloom round the lamp head, the halo that blinds (visual only). -1 = auto: 1 when light hurts, else 0.01")]
+        public float lampGlow = -1f;
+        public float LampGlow => lampGlow >= 0f ? Mathf.Clamp01(lampGlow) : (lightHurts ? 1f : 0.01f);
         [TextArea] public string playHint = "";
 
         public static EdgeFeedingPreset CreateTolerant()
@@ -94,8 +102,8 @@ namespace Edge.Feeding
             p.speciesBlurb = "Gould's long-eared bat (Nyctophilus gouldi): slow clutter forager that avoids light - EDGE's subject.";
             p.endMessage = "Light-averse species like Gould's long-eared bat lose foraging habitat: the insects gather at lamps they cannot use, and the dark is left poorer.";
             p.lightHurts = true; p.ignoreDoseInstability = false; p.speedMultiplier = 0.85f;
-            p.lampShare = 0.75f; p.hungerDrainPerSec = 0.024f; p.bumpHungerCost = 0.015f; // clutter specialist: agile, small penalty
-            p.budgetFmm = 12f; p.doseMultiplier = 2.5f;
+            p.lampShare = 0.75f; p.hungerDrainPerSec = 0.012f; p.bumpHungerCost = 0.015f; // clutter specialist: agile, small penalty
+            p.budgetFmm = 30f; p.doseMultiplier = 2.5f;   // about 14 s under a lamp in total, so a dash for a moth is possible
             p.playHint = "Light hurts you. Hunt the scattered moths in the dark.";
             return p;
         }

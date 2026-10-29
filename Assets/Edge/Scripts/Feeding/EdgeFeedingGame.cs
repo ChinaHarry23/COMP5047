@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Edge.UI;
 using UnityEngine.InputSystem;
+using UnityEngine.Rendering.HighDefinition;
 
 namespace Edge.Feeding
 {
@@ -48,6 +49,8 @@ namespace Edge.Feeding
         [Header("Echolocation highlight")]
         public Color echoColor = new Color(0.55f, 0.8f, 1f);
         public float echoEmissive = 30f;
+        [Tooltip("Highlight size relative to the moth at the moment of the ping; shrinks to half as it fades")]
+        public float echoScale = 4f;
         public Key echoKey = Key.E;
 
         [Header("Rival light-tolerant bats")]
@@ -149,6 +152,22 @@ namespace Edge.Feeding
 
         EdgeLightEffects Fx => _fx ? _fx : (_fx = EdgeLightEffects.Instance);
 
+        // How the street lamps look for the current bat (EdgeFeedingPreset.LampBrightness / LampGlow).
+        // Visual only: the lux at the bat comes from EdgeConfig, never from the Light component.
+        // The blinding halo is the head's bloom plus the spot light in the volumetric fog, so glow has its own factor.
+        struct LampLook
+        {
+            public Light light; public float intensity;
+            public HDAdditionalLightData hd; public float volumetricDimmer;
+            public Renderer[] heads; public Color[] emissive;
+        }
+        static readonly int EmissiveColorId = Shader.PropertyToID("_EmissiveColor");
+        LampLook[] _lampLooks;
+        float _lampK = 1f, _lampGlow = 1f;
+        MaterialPropertyBlock _lampMpb;
+
+        bool InLightGrace => CurrentState == State.Playing && Time.unscaledTime - _playStart < Preset.lightGraceSeconds;
+
         void Awake()
         {
             if (!tolerantPreset) tolerantPreset = EdgeFeedingPreset.CreateTolerant();
@@ -167,6 +186,7 @@ namespace Edge.Feeding
         {
             if (flight) { _startPos = flight.transform.position; _startHeading = flight.transform.eulerAngles.y; }
             FindLamps();
+            CaptureLampLooks();
             BuildVisuals();
             BuildAudio();
             if (themedUi) _ui = EdgeUiView.Create();
@@ -196,6 +216,7 @@ namespace Edge.Feeding
             if (flight && flight.dose) flight.dose.ResetVirtual();   // the exhibit resumes without the game's lamp dose
             if (exhibitHud) { exhibitHud.compact = false; exhibitHud.hideBudget = false; }
             if (Fx) Fx.scale = 1f;
+            SetLampLook(1f, 1f);
             if (_sfx) _sfx.SetApproach(0f, 0f);
             if (_ui) _ui.gameObject.SetActive(false);
         }
@@ -213,6 +234,59 @@ namespace Edge.Feeding
             _pathMin = _pathMax = flight ? flight.transform.position : transform.position;
             foreach (var h in _lampHeads) { _pathMin = Vector3.Min(_pathMin, h); _pathMax = Vector3.Max(_pathMax, h); }
             Debug.Log($"[EDGE] Feeding game: {_lampHeads.Count} lamps found");
+        }
+
+        void CaptureLampLooks()
+        {
+            var looks = new List<LampLook>();
+            foreach (var l in lamps)
+            {
+                if (!l) continue;
+                var look = new LampLook { light = l.GetComponentInChildren<Light>(true) };
+                if (look.light)
+                {
+                    look.intensity = look.light.intensity;
+                    look.hd = look.light.GetComponent<HDAdditionalLightData>();
+                    if (look.hd) look.volumetricDimmer = look.hd.volumetricDimmer;
+                }
+                var heads = new List<Renderer>();
+                var emissive = new List<Color>();
+                foreach (var r in l.GetComponentsInChildren<Renderer>(true))
+                {
+                    var m = r.sharedMaterial;
+                    if (!m || !m.HasProperty(EmissiveColorId)) continue;
+                    Color e = m.GetColor(EmissiveColorId);
+                    if (e.maxColorComponent <= 1f) continue;   // only the glowing lamp head
+                    heads.Add(r);
+                    emissive.Add(e);
+                }
+                look.heads = heads.ToArray();
+                look.emissive = emissive.ToArray();
+                looks.Add(look);
+            }
+            _lampLooks = looks.ToArray();
+        }
+
+        void SetLampLook(float k, float glow)
+        {
+            if (_lampLooks == null || (Mathf.Approximately(k, _lampK) && Mathf.Approximately(glow, _lampGlow))) return;
+            _lampK = k;
+            _lampGlow = glow;
+            if (_lampMpb == null) _lampMpb = new MaterialPropertyBlock();
+            foreach (var look in _lampLooks)
+            {
+                if (look.light) look.light.intensity = look.intensity * k;
+                if (look.hd) look.hd.volumetricDimmer = look.volumetricDimmer * glow;
+                for (int i = 0; i < look.heads.Length; i++)
+                {
+                    var r = look.heads[i];
+                    if (!r) continue;
+                    if (Mathf.Approximately(k * glow, 1f)) { r.SetPropertyBlock(null); continue; }
+                    _lampMpb.Clear();
+                    _lampMpb.SetColor(EmissiveColorId, look.emissive[i] * (k * glow));
+                    r.SetPropertyBlock(_lampMpb);
+                }
+            }
         }
 
         static Material LitMaterial(string name, Color c, float smoothness)
@@ -499,7 +573,9 @@ namespace Edge.Feeding
             if (CurrentState == State.Playing && pr.EchoEnabled && pr.echoInterval > 0f && Time.time - _lastPing >= pr.echoInterval)
             { _lastPing = Time.time; ping = true; }
             if (ping && CurrentState == State.Playing && _sfx) _sfx.PlayPing();
-            if (Fx) Fx.scale = pr.LightEffectScale;
+            // during the start grace the light-averse bat still sees and feels the lamp, just faintly
+            if (Fx) Fx.scale = pr.LightEffectScale * (InLightGrace ? 0.25f : 1f);
+            SetLampLook(pr.LampBrightness, pr.LampGlow);
 
             float dt = Time.deltaTime;
             Simulate(dt);
@@ -532,13 +608,15 @@ namespace Edge.Feeding
                 float dd = Mathf.Max(dist, 0.5f);
                 lux += EdgeConfig.LampPhotLuxAtRef * (EdgeConfig.LampRefDistanceM * EdgeConfig.LampRefDistanceM) / (dd * dd);
             }
+            // a torch held on the real bat adds to the lamps, so it drains the budget and energy too
+            if (Fx) lux += Fx.RealGameLux;
             LuxAtBat = lux;
             InLight = lux >= p.litLuxThreshold;
             bool beamed = Fx && (Fx.InBeam || Fx.Flashing);
             if (InLight || beamed) LightSeconds += dt;
 
             float vib = 0f;
-            if (p.lightHurts)
+            if (p.lightHurts && !InLightGrace)
             {
                 float fmmPerSec = lux * EdgeConfig.SpAmber / EdgeConfig.FmmScotLux * (EdgeConfig.TimeCompression / 60f);
                 _budgetFmm -= fmmPerSec * p.doseMultiplier * dt;
@@ -757,7 +835,7 @@ namespace Edge.Feeding
                 var scale = new Vector3(insectSize * wing, insectSize, insectSize);
                 _mats[c++] = Matrix4x4.TRS(s.pos, rot, scale);
                 if (echo && e < _echoMats.Length && (s.pos - bat).sqrMagnitude < echoR2)
-                    _echoMats[e++] = Matrix4x4.TRS(s.pos, rot, scale * (1.2f + 0.8f * echoK));
+                    _echoMats[e++] = Matrix4x4.TRS(s.pos, rot, scale * (echoScale * (0.5f + 0.5f * echoK)));
             }
             // eat burst: wing-scale fragments thrown out and falling, shrinking as they go
             foreach (var pp in _pops)
@@ -864,7 +942,7 @@ namespace Edge.Feeding
                 hint = p.displayName + ": " + (string.IsNullOrEmpty(p.playHint) ? "fly through moths to eat." : p.playHint),
                 hintAlpha = CurrentState == State.Playing ? Mathf.Clamp01(hintFadeSeconds + 1f - age) : 0f,   // hold, then a 1 s fade
                 endReason = EndReason, verdict = Verdict(p),
-                debug = DebugHud ? $"{p.displayName} | lux {LuxAtBat:F2} {(InLight ? "LIT" : "dark")} | hunger {Hunger01 * 100f:F0}% budget {Budget01 * 100f:F0}% | at lamps {LampShare01 * 100f:F0}% rivals {RivalScore}\n[1][2] variant  [R] restart  [E] ping  [H] HUD" : null,
+                debug = DebugHud ? $"{p.displayName} | lux {LuxAtBat:F2} (real {(Fx ? Fx.RealGameLux : 0f):F2}) {(InLight ? "LIT" : "dark")} | hunger {Hunger01 * 100f:F0}% budget {Budget01 * 100f:F0}% | at lamps {LampShare01 * 100f:F0}% rivals {RivalScore}\n[1][2] variant  [R] restart  [E] ping  [H] HUD" : null,
                 subtitle = _ui.Subtitle, subtitleAlpha = _ui.SubtitleAlpha,
             };
             int n = 0;
@@ -919,7 +997,7 @@ namespace Edge.Feeding
 
             if (DebugHud)
                 GUI.Label(new Rect(x - 300f, y + 12f, w + 300f, 60f),
-                    $"{p.displayName} | lux {LuxAtBat:F2} {(InLight ? "LIT" : "dark")} | hunger {Hunger01 * 100f:F0}% budget {Budget01 * 100f:F0}% | at lamps {LampShare01 * 100f:F0}% rivals {RivalScore}\n[1][2] variant  [R] restart  [E] ping  [H] HUD", _small);
+                    $"{p.displayName} | lux {LuxAtBat:F2} (real {(Fx ? Fx.RealGameLux : 0f):F2}) {(InLight ? "LIT" : "dark")} | hunger {Hunger01 * 100f:F0}% budget {Budget01 * 100f:F0}% | at lamps {LampShare01 * 100f:F0}% rivals {RivalScore}\n[1][2] variant  [R] restart  [E] ping  [H] HUD", _small);
 
             // +1 rising from each catch
             var cam = ActiveCamera();

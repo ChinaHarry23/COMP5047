@@ -17,8 +17,8 @@ MonoBehaviour:
     that avoids light - EDGE''s subject.'
   endMessage: 'Light-averse species like Gould''s long-eared bat lose foraging habitat:
     the insects gather at lamps they cannot use, and the dark is left poorer.'
-  roundSeconds: 90
-  hungerDrainPerSec: 0.024
+  roundSeconds: 45
+  hungerDrainPerSec: 0.012
   hungerPerInsect: 0.06
   startHunger: 0.7
   insectCount: 220
@@ -29,12 +29,27 @@ MonoBehaviour:
   eatRadius: 0.9
   respawnSeconds: 4
   insectSpeed: 1.2
+  lampOrbitRadius: {x: 0.5, y: 2}
+  dartRate: 0.6
+  echoMode: 1
+  echoInterval: 0
+  echoRadius: 20
+  echoDuration: 3
   lightHurts: 1
-  budgetFmm: 12
-  doseMultiplier: 2.5
+  budgetFmm: 60
+  doseMultiplier: 1.25
   litLuxThreshold: 0.3
   litSpeedMultiplier: 0.7
   litInstability: 0.5
   litHungerDrainPerSec: 0.02
+  lightGraceSeconds: 4
   ignoreDoseInstability: 0
+  bumpHungerCost: 0.03
   speedMultiplier: 0.85
+  lampPull: 0.5
+  lampPullRange: 22
+  rivalBats: -1
+  lightEffectScale: -1
+  lampBrightness: -1
+  lampGlow: -1
+  playHint: Light hurts you. Leave the lit path and hunt moths in the dark.
