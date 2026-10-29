@@ -88,3 +88,12 @@ Set `voiceKind = Esp32Speaker`. The narration logic doesn't change, because it o
 - **Lamps**: fly into a lamp to trigger enter_lamp, then leave it. Keep flying through lamps to pass the budget thresholds 75/50/25/10/spent.
 - **Weather**: select Weather Sky, then use EDGE > Weather > Force > … (or the forceWeather toggle) during Play. The weather_changed event fires.
 - **Darkness**: stay out of all lamp light for 30 s to get a long_dark_stretch line.
+
+## Feeding game: two comic bats (30 Oct)
+With an `EdgeFeedingGame` in the scene the narrator narrates the game, not the exhibit dose. Each bat has its own persona, prompt, offline lines and voice, switched at every round start:
+- **Light-tolerant (Gould's wattled bat):** cocky party animal; lamps are a moth buffet. Gemini voice `Fenrir`, Mac fallback `Rocko (English (UK))`.
+- **Light-averse (Gould's long-eared bat):** anxious introvert; lamps are blinding spotlights. Gemini voice `Enceladus`, Mac fallback `Flo (English (UK))`.
+
+Events: round start, moth eaten (first, then every `mothLineEvery`), entered/left light (lamps or real room light), long dark stretch, energy below 25%, night vision below 30% (light-averse), real flash/torch from the room (`EdgeLightEffects.RealLightHit`), round over. Nothing is said on the start screen. Context sent to Gemini: event, bat, moths eaten, energy %, night vision % (light-averse), seconds left, in light, dark for (s), plus the real-light detail or the round result.
+
+Prompt guardrails (`GameRules`): one sentence, at most 15 words, PG, tease the lamps never the visitor, keep the light facts true, no invented numbers.

@@ -29,13 +29,16 @@ namespace Edge.Narration
             this.fallbackToOtherVoice = fallbackToOtherVoice;
         }
 
+        string CacheKey(string text) => _client.ttsVoice + "|" + text;
+
         public bool IsSpeaking => _pending || (_src && _src.isPlaying) || _fallback.IsSpeaking;
 
         public void Speak(string text)
         {
             Stop();
             if (string.IsNullOrWhiteSpace(text)) return;
-            if (cacheAudio && _cache.TryGetValue(text, out var cached) && cached) { Play(cached, false); return; }
+            // keyed by voice too: each bat has its own voice, and the same words must not replay in the other one
+            if (cacheAudio && _cache.TryGetValue(CacheKey(text), out var cached) && cached) { Play(cached, false); return; }
             int tok = ++_token;
             _pending = true;
             Attempt(text, tok, 0);
@@ -50,7 +53,7 @@ namespace Edge.Narration
                 if (!_src) return;
                 var clip = AudioClip.Create("EDGE narration", samples.Length, 1, rate, false);
                 clip.SetData(samples, 0);
-                if (cacheAudio) _cache[text] = clip;
+                if (cacheAudio) _cache[CacheKey(text)] = clip;
                 Play(clip, !cacheAudio);
             }, err =>
             {
