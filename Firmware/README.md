@@ -13,10 +13,10 @@ and where the numbers come from. Plan references (§) are to `REVISION_3_PLAN.md
 - **`lib/core/`**: the policy, in plain C11 with no Arduino headers. It compiles unchanged on the board and on a laptop.
 - **`sim/`**: unit tests and a scenario simulator. They run the real `lib/core` and assert invariants I1-I9 (§7.4) on every control step.
 - **`src/kit/`** (env `kit`): FW0, the check-in loop on unit-kit parts.
-- **`src/exhibit/`** (env `exhibit`): the full exhibit app. The bat's spectral input comes from the AS7343 driver in `lib/as7343` through a small adapter (§7).
+- **`src/exhibit/`** (env `exhibit`): the full exhibit app. No spectral sensor is fitted. `spectral_absent.cpp` reports invalid frames so the core can enter FAULT (§7).
 - **`include/`**: pins and code shared by the targets. PlatformIO compiles only one `src/` subfolder per target, so shared code lives here.
 
-`lib/as7343/` (the AS7343 driver), `src/o1/` (env `o1_logger`, the O1 optics logger; archived 16 Oct) and `tools/` belong to other work packages and have their own READMEs. This file describes only how the exhibit uses the driver (§7).
+`src/o1/` (env `o1_logger`, the O1 optics logger; archived 16 Oct) and `tools/` belong to other work packages. This file describes the exhibit's spectral input in §7.
 
 ---
 
@@ -82,8 +82,7 @@ include/
   secrets.h.example  Wi-Fi template; copy to secrets.h (git-ignored)
 src/kit/             FW0: main.cpp, kit_light (phototransistor), kit_presence
 src/exhibit/         main.cpp, presence, operator_io, net, logbook, calib_store,
-                     bench_cal, spectral_source.h + spectral_as7343.cpp, recorded_nights.h
-lib/as7343/          AS7343 register-level driver (own README; used by exhibit and the archived o1_logger)
+                     bench_cal, spectral_source.h + spectral_absent.cpp, recorded_nights.h
 ```
 
 ---
@@ -101,7 +100,7 @@ lib/as7343/          AS7343 register-level driver (own README; used by exhibit a
 
 **One stepper.** `edge_fsm_step()` is the only function that moves the lamp or spends budget, and each app calls it from exactly one place, every `EDGE_STEP_MS`. This fixes the progress check's double-stepping bug. Spectral frames (about 5 Hz) update the light estimate between steps. The step charges the light emitted over the step that just finished.
 
-**The light layer boundary.** The FSM never sees spectra. It sees `edge_light_t`: the lamp component, the signed broadband change, the F6 flag, and validity. In the exhibit, `sep2` produces it from AS7343 frames. In the kit, `KitLight` produces it from one phototransistor channel, treating the whole rise as lamp light. Because the struct is the same, the kit runs the exhibit's policy unchanged.
+**The light layer boundary.** The FSM never sees spectra. It sees `edge_light_t`: the lamp component, the signed broadband change, the F6 flag, and validity. In the exhibit, `sep2` produces it from 12-channel spectral frames. With no sensor fitted those frames are invalid and the core enters FAULT. In the kit, `KitLight` produces it from one phototransistor channel, treating the whole rise as lamp light. Because the struct is the same, the kit runs the exhibit's policy unchanged.
 
 **States** (§7.3), as implemented in `budget_fsm.c`:
 
@@ -140,7 +139,7 @@ These rules hold in every state:
 
 ### sep2: two-endmember separation (§7.2, F3, F6)
 
-Each frame `y` (12 AS7343 channels in basic counts) is explained as follows.
+Each frame `y` (12 spectral channels in basic counts) is explained as follows.
 
 ```
 y = baseline + a · shape_lamp + w · shape_broad + residual
@@ -265,7 +264,7 @@ Declared (not measured) by the plan:
 - 5 s fetch cap;
 - 6 h refresh.
 
-`EDGE_DIM_TO_FLOOR_MS` = 600 ms is sized for TP6. The budget is one 0.2 s frame of detection latency, plus the 0.4 s hold, plus (max − floor) × 0.6 s, which must stay at or under 1.0 s. If the floor/max gap grows, recheck it (scenario 05 asserts it). That budget assumes 0.2 s frames; at the AS7343's real frame period it has no margin (§7, "Things to check on Wed 7").
+`EDGE_DIM_TO_FLOOR_MS` = 600 ms is sized for TP6. The budget is one 0.2 s frame of detection latency, plus the 0.4 s hold, plus (max − floor) × 0.6 s, which must stay at or under 1.0 s. If the floor/max gap grows, recheck it (scenario 05 asserts it). That budget assumes 0.2 s frames.
 
 ---
 
@@ -310,7 +309,7 @@ Declared (not measured) by the plan:
 
 | Pin | Use |
 |---|---|
-| 21 / 22 | I²C to the AS7343 |
+| 21 / 22 | I²C (no spectral sensor fitted) |
 | 25 | Lamp (BC337 base via 220 Ω) |
 | 26 | FS90 |
 | 36 | Force sensor (3V3 → RP-S40-ST → GPIO36, 10 kΩ → GND) |
@@ -368,59 +367,9 @@ spent, event FMM, B, C, sky source
 
 Flushing is synchronous. Lines are buffered in 4 KB of RAM and appended to flash from `loop()` every 5 s, so each flush stalls the control loop for as long as LittleFS takes. That time has not been measured; SPI flash sector erases typically take tens of milliseconds. A separate task would not remove the stall: while flash is erased or written, ESP-IDF disables the caches and the other core busy-waits. The FSM clamps its step to 200 ms, so a stall cannot jump the lamp or the budget.
 
-### Bat sensor (AS7343) integration
+### Spectral input
 
-`src/exhibit/spectral_as7343.cpp` is the exhibit's `SpectralSource` (`spectral_source.h`). It runs the register-level driver in `lib/as7343` and translates each driver frame into the core's `edge_spectral_frame_t` (`lib/core/spectral.h`). The driver's own README covers the chip: registers, auto-gain, bus recovery and the bring-up checks. Nothing in `lib/core` or `lib/as7343` was changed for the integration.
-
-**Set-up.**
-
-- **Integration: 50 ms per SMUX cycle** (`setIntegration10ms(5)`).
-  - It spans whole periods of 100 Hz mains flicker (§4).
-  - It matches the O1 logger's default, so O1's signal and drift figures apply to the exhibit.
-  - One 18-channel frame is three cycles: nominally 150 ms, plus autozero and SMUX switching. A `static_assert` keeps the nominal frame inside `EDGE_FRAME_PERIOD_MS`.
-- **Auto-gain on** (the driver's software AGC). This is safe for sep2 because every value it sees is gain-normalised (see the gain limit below).
-- **Light hygiene.**
-  - The PIM707's two white LEDs are held off by the driver, not the adapter. On every (re)connection it writes LED_ACT = 0 and reads it back, and it refuses a chip that does not read back off (`led-verify`). The PIM707 schematic puts the LEDs' cathodes on the AS7343's LDR pin, so with LED_ACT = 0 they cannot light.
-  - The FireBeetle's own LED (GPIO2) and RGB LED (GPIO5) are switched off in `setup()`.
-
-**Frame mapping.**
-
-| `edge_spectral_frame_t` | Taken from `as7343::Frame` |
-|---|---|
-| `ch[EDGE_CH_F1 … EDGE_CH_NIR]` | `as7343::basicCounts(frame, kSlot[i])`, with `kSlot` = kF1, kF2, kFZ, kF3, kF4, kF5, kFY, kFXL, kF6, kF7, kF8, kNIR. This rearranges the driver's data-register order into the core's wavelength order (405 … 855 nm, DS001046 Fig. 7). `basicCounts` = raw / (nominal gain × integration ms per cycle), which is the core's unit. |
-| `clear` | Mean of VIS1–VIS3 in basic counts (diagnostic only). |
-| `t_end_ms` | The `poll()` call that received the frame: the driver completes a frame in the call that finds AVALID set. |
-| `t_start_ms` | `tMs − (t_end_ms − tMs)`. The driver stamps `tMs` at the middle of the window from SP_EN to that poll. The window includes the autozero, so it is slightly wider than the three integrations; that only makes sep2's steady-frame gate stricter. |
-| `valid` | `true` for every frame the chip delivered. |
-| `saturated` | `analogSaturation \|\| digitalSaturation`. |
-
-**Saturation is a flag, not a missing frame.**
-
-- A saturated frame stays `valid`. sep2 already keeps saturated frames out of the unmixing and the baseline, but the F6 detector still sees them.
-- This matters because a phone torch on the bat is the case most likely to saturate. Reporting those frames as invalid would turn a torch held for more than 1 s into FAULT (`EDGE_SENSOR_TIMEOUT_MS`), with its dose uncharged.
-- Clipped counts under-read the light, so a saturated frame gives F6 a lower bound. After an analog-saturated frame the driver's auto-gain steps the gain down 4×.
-
-**A missing chip means FAULT, then automatic recovery (TP1).**
-
-1. The driver reports `kLost` after three consecutive failures (I2C error, AVALID timeout, or settings lost). The adapter logs the reason and reports a `valid = false` frame at once, so no stale reading is used.
-2. While the chip is missing, the driver clears the bus (9 clocks + STOP) and re-probes every 0.5 s. The adapter reports `valid = false` every `EDGE_FRAME_PERIOD_MS`.
-3. The core enters FAULT 1 s (`EDGE_SENSOR_TIMEOUT_MS`) after the last valid frame:
-   - lamp at the floor if someone is present, otherwise off;
-   - the lamp is still charged, from its last measured transfer;
-   - the needle is parked on the FAULT tick.
-4. On replug, the driver re-identifies the chip, re-verifies the LEDs off and reconfigures it (`kConnected`, logged). FAULT clears 1 s after the first valid frame. sep2 re-learns the room, because a different (spare) bat may have been plugged in.
-   - Worst case from replug: 0.5 s probe period + one frame (about 0.17 s) + 1 s ≈ 1.7 s, under TP1's 2 s. This is arithmetic; it has not been measured.
-5. A chip that resets itself (brown-out) without leaving the bus is caught by the driver's settings read-back or its AVALID timeout, and reconfigured. The gap is about 0.7 s, which is under the 1 s FAULT timeout.
-
-All of these are logged as notes starting `bat sensor:` (found / no AS7343 (reason) / lost (reason) / connected).
-
-**The I2C bus belongs to the bat.** The driver's bus recovery calls `Wire.end()` / `Wire.begin()` and drives SDA and SCL directly. Nothing else in the exhibit uses `Wire`. Adding another I2C device means reviewing `recoverBus()` in `lib/as7343` first.
-
-**Power the bat from 3V3, never 5 V.**
-
-- The PIM707 has an LDO (1.8 V for the AS7343) and MOSFET level shifters. Their host-side 10 kΩ pull-ups go to the breakout's own VIN.
-- Fed from 3V3 as in §6 (3V3 → 10 Ω → 10 µF ∥ 100 nF → connector), SDA and SCL idle at 3.3 V.
-- Fed from 5 V, they would pull the ESP32's pins, which are not 5 V tolerant, to 5 V.
+No spectral sensor is fitted. `src/exhibit/spectral_absent.cpp` is the exhibit's `SpectralSource` (`spectral_source.h`). `begin()` returns false and logs `bat sensor: none fitted`. `poll()` reports `valid=false` frames at `EDGE_FRAME_PERIOD_MS`, so the core enters FAULT after `EDGE_SENSOR_TIMEOUT_MS`. I²C pins 21 and 22 stay in the pin list.
 
 **PWM timers and pins.**
 
@@ -429,21 +378,6 @@ All of these are logged as notes starting `bat sensor:` (found / no AS7343 (reas
   - The kit also uses 39 (phototransistor) and 23 (kit button).
   - The O1 logger uses 21/22, 25, 39, 2 and 5.
   - Every value in `pins.h` is distinct, so no build shares a pin between drivers.
-
-**Things to check on Wed 7.**
-
-- **TP6 timing has no margin at the real frame rate.**
-  - The TP6 budget in §5 assumed 0.2 s frames. The F6 hold is confirmed only when a frame arrives, so with a frame period T it takes ceil(0.4 s / T) frames.
-  - At T ≈ 0.17 s (nominal, not measured) that is 3 frames, or 0.51 s. The worst case becomes T + 0.51 s + one 50 ms step + (max − floor) × `EDGE_DIM_TO_FLOOR_MS` ≈ 0.17 + 0.51 + 0.05 + 0.33 = 1.06 s, against TP6's 1.0 s.
-  - Measure the real frame period at bring-up (driver check 2). If TP6 fails, the levers are `EDGE_DIM_TO_FLOOR_MS` and the max − floor gap. Both are core config and a team decision.
-- **Gain changes and the room baseline.**
-  - Basic counts use nominal gain ratios, which the datasheet puts up to about 9% off at 2048× (Fig. 10).
-  - When auto-gain changes the gain (lamp switching between very different levels, or a torch), the baseline of a bright room can shift by that fraction and read as a broadband change.
-  - If O1's `gain` column shows the gain stepping in normal operation and the drift matters, lock the gain in `as7343_begin()` with `g_sensor.setGainCode(code)` at the gain O1 used.
-- **Serial noise while unplugged.**
-  - The core's default log level is ERROR (`CONFIG_ARDUHAL_LOG_DEFAULT_LEVEL 1`), and `esp32-hal-i2c-ng.c` logs every failed write. So each 0.5 s re-probe prints one `[E] … i2c_master_transmit failed` line. It is harmless.
-  - `Serial.setDebugOutput(false)` (as the O1 logger uses) would hide it, but it would also hide every other core error, so it is left on.
-- **Driver open items that also affect the exhibit** (`lib/as7343/README.md`): the assumption that AVALID clears on restart (bring-up check 2), and SMUXEN.
 
 ---
 
@@ -585,8 +519,7 @@ Three kit-side bugs were planted in copies of `kit_light.cpp` and `needle_servo.
   - the logbook uses ESP-IDF's LittleFS VFS (`esp_vfs_littlefs_register`) with C file I/O.
 
   Both are already linked into the Arduino core. If the team prefers the Arduino wrappers, set `lib_ldf_mode = deep` (or chain) in `platformio.ini`; that is a team decision.
-- **Flash headroom.** With Wi-Fi, TLS and the AS7343 driver linked, the exhibit uses 91.5% of the default 1.25 MB app partition (about 110 KB free). A larger partition table (e.g. `board_build.partitions = huge_app.csv`) is a `platformio.ini` change for the team if more code is added.
-- **AS7343 timing and gain.** The TP6 timing margin at the real frame rate, and gain steps shifting a bright room's baseline: see §7, "Things to check on Wed 7".
+- **Flash headroom.** The last measured exhibit image still linked a spectral driver and used 91.5% of the default 1.25 MB app partition (about 110 KB free). Remeasure after the next exhibit build. A larger partition table (e.g. `board_build.partitions = huge_app.csv`) is a `platformio.ini` change for the team if more code is added.
 - **Near-collinear leak.** See §4 sep2: room-light changes while lit leak into the lamp estimate until the room is re-learned.
 - **Torch dose scale.** At equal photopic light, broadband costs EDGE_SP_BROAD / EDGE_SP_AMBER ≈ 9× the lamp. With the placeholders, a 5 lux torch costs about 27 FMM per exhibit second, which is about half a clear-night budget per second. The torch beat will push the budget to or past zero unless O1/E4 numbers change this. That is the declared proxy working as specified, not a bug, but it shapes the demo.
 - **Kit (FW0) measures nothing spectral** (§6).
@@ -599,7 +532,7 @@ Three kit-side bugs were planted in copies of `kit_light.cpp` and `needle_servo.
   - F4's interpolation is perceptual, not lux-linear (0.49 vs 0.59 of maximum light at half budget).
 - **Logbook flushes block the loop** for an unmeasured time every 5 s (§7).
 - **Touch coupling** from the servo into the electrode is unverified; `EDGE_NEEDLE_QUIET_MS` is a placeholder.
-- **Unverified on hardware.** Nothing here has run on a board yet, including the AS7343 integration (§7). Every hardware constant marked PLACEHOLDER needs its bench test (§5).
+- **Unverified on hardware.** Nothing here has run on a board yet. Every hardware constant marked PLACEHOLDER needs its bench test (§5).
 
 ---
 
@@ -623,8 +556,6 @@ Two things were not carried over:
 ## 11. Sources consulted for this firmware (5 Oct 2026)
 
 - **DFRobot, FireBeetle 2 ESP32-E (DFR0654) wiki**, wiki.dfrobot.com/dfr0654 (pin table: input-only 34–39, ADC1 on 36/39, IO2 LED, IO5 WS2812, IO27 user button, USB pins 0/1/3), and the board variant `variants/dfrobot_firebeetle2_esp32e/pins_arduino.h` in Arduino-ESP32 3.3.11.
-- **ams OSRAM, AS7343 datasheet** (look.ams-osram.com/m/5f2d27fff9a874d2/original/AS7343-14-Channel-Multi-Spectral-Sensor.pdf): channel peak wavelengths and FWHMs (F1 405 … NIR 855 nm), VIS and flicker channels, 14 channels from 380–1000 nm. The register-level facts the integration relies on are cited in `lib/as7343/README.md`.
-- **Pimoroni, AS7343 breakout (PIM707)** product page, shop.pimoroni.com/products/as7343-breakout (I²C address 0x39, two on-board illumination LEDs, 3.3 V or 5 V, 19 × 20 × 5 mm), and its schematic, `AS7343_breakout_schematic.pdf` linked from that page, dated 13/06/2024 (1.8 V LDO; MOSFET I²C level shifters with 10 kΩ pull-ups to VIN on the host side; LED cathodes on the AS7343 LDR pin). Both opened 5 Oct 2026.
 - **Open-Meteo API documentation** (open-meteo.com/en/docs):
   - `timeformat=unixtime` gives GMT+0 epochs; apply `utc_offset_seconds` for daily dates;
   - `cloud_cover` is the instantaneous total cloud cover in %;
@@ -633,7 +564,7 @@ Two things were not carried over:
 - **FEETECH FS90**, via Pololu product 2818: about 120° for 900–2100 µs pulses. The Core Electronics CE09376 listing's 180° / 500–2500 µs was noted but not used.
 - **Arduino-ESP32 3.3.11 sources** (installed package):
   - LEDC timer allocation (`find_matching_timer` / `find_free_timer` in `esp32-hal-ledc.c`) and the full-duty special case;
-  - `TwoWire::end()` / `begin()` freeing and reallocating their buffers (`Wire.cpp`), so the driver's bus clear every 0.5 s while the bat is unplugged does not leak;
+  - `TwoWire::end()` / `begin()` freeing and reallocating their buffers (`Wire.cpp`);
   - `esp32-hal-i2c-ng.c` error logging on a failed write, and `CONFIG_ARDUHAL_LOG_DEFAULT_LEVEL 1` in the precompiled `sdkconfig.h`;
   - the new touch driver's `touch_value_t`;
   - `NetworkClientSecure` handshake units;

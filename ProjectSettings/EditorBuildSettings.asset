@@ -6,7 +6,11 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/OutdoorsScene.unity
-    guid: 8124e5870f4fd4c779e7a5f994e84ad1
+    path: Assets/Edge/Scenes/EdgeBushland.unity
+    guid: 6523eb7ddba894e468653f05556bc9e3
+  - enabled: 1
+    path: Assets/Edge/Scenes/EdgeSydneyBushland.unity
+    guid: 3df44868ac3a949dea05fb55a0e49a93
   m_configObjects:
+    com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 35845fe01580c41289b024647b1d1c53, type: 3}

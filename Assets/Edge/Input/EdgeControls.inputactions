@@ -1,0 +1,40 @@
+{
+    "name": "EdgeControls",
+    "maps": [
+        {
+            "name": "Fly",
+            "id": "6b1f0a52-3c4e-4d1a-9f0e-1a2b3c4d5e01",
+            "actions": [
+                { "name": "Steer", "type": "Value", "id": "6b1f0a52-3c4e-4d1a-9f0e-1a2b3c4d5e02", "expectedControlType": "Axis", "processors": "", "interactions": "", "initialStateCheck": true },
+                { "name": "Climb", "type": "Value", "id": "6b1f0a52-3c4e-4d1a-9f0e-1a2b3c4d5e03", "expectedControlType": "Axis", "processors": "", "interactions": "", "initialStateCheck": true },
+                { "name": "Zero",  "type": "Button", "id": "6b1f0a52-3c4e-4d1a-9f0e-1a2b3c4d5e04", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+            ],
+            "bindings": [
+                { "name": "", "id": "a0000000-0000-4000-8000-000000000001", "path": "<EdgeTag>/steer", "interactions": "", "processors": "", "groups": "Tag", "action": "Steer", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "a0000000-0000-4000-8000-000000000002", "path": "<Gamepad>/leftStick/x", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Steer", "isComposite": false, "isPartOfComposite": false },
+                { "name": "AD", "id": "a0000000-0000-4000-8000-000000000003", "path": "1DAxis", "interactions": "", "processors": "", "groups": "", "action": "Steer", "isComposite": true, "isPartOfComposite": false },
+                { "name": "negative", "id": "a0000000-0000-4000-8000-000000000004", "path": "<Keyboard>/a", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Steer", "isComposite": false, "isPartOfComposite": true },
+                { "name": "positive", "id": "a0000000-0000-4000-8000-000000000005", "path": "<Keyboard>/d", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Steer", "isComposite": false, "isPartOfComposite": true },
+                { "name": "Arrows", "id": "a0000000-0000-4000-8000-000000000006", "path": "1DAxis", "interactions": "", "processors": "", "groups": "", "action": "Steer", "isComposite": true, "isPartOfComposite": false },
+                { "name": "negative", "id": "a0000000-0000-4000-8000-000000000007", "path": "<Keyboard>/leftArrow", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Steer", "isComposite": false, "isPartOfComposite": true },
+                { "name": "positive", "id": "a0000000-0000-4000-8000-000000000008", "path": "<Keyboard>/rightArrow", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Steer", "isComposite": false, "isPartOfComposite": true },
+                { "name": "", "id": "a0000000-0000-4000-8000-000000000011", "path": "<EdgeTag>/climb", "interactions": "", "processors": "", "groups": "Tag", "action": "Climb", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "a0000000-0000-4000-8000-000000000012", "path": "<Gamepad>/leftStick/y", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Climb", "isComposite": false, "isPartOfComposite": false },
+                { "name": "SW", "id": "a0000000-0000-4000-8000-000000000013", "path": "1DAxis", "interactions": "", "processors": "", "groups": "", "action": "Climb", "isComposite": true, "isPartOfComposite": false },
+                { "name": "negative", "id": "a0000000-0000-4000-8000-000000000014", "path": "<Keyboard>/s", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Climb", "isComposite": false, "isPartOfComposite": true },
+                { "name": "positive", "id": "a0000000-0000-4000-8000-000000000015", "path": "<Keyboard>/w", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Climb", "isComposite": false, "isPartOfComposite": true },
+                { "name": "Arrows", "id": "a0000000-0000-4000-8000-000000000016", "path": "1DAxis", "interactions": "", "processors": "", "groups": "", "action": "Climb", "isComposite": true, "isPartOfComposite": false },
+                { "name": "negative", "id": "a0000000-0000-4000-8000-000000000017", "path": "<Keyboard>/downArrow", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Climb", "isComposite": false, "isPartOfComposite": true },
+                { "name": "positive", "id": "a0000000-0000-4000-8000-000000000018", "path": "<Keyboard>/upArrow", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Climb", "isComposite": false, "isPartOfComposite": true },
+                { "name": "", "id": "a0000000-0000-4000-8000-000000000021", "path": "<EdgeTag>/zero", "interactions": "", "processors": "", "groups": "Tag", "action": "Zero", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "a0000000-0000-4000-8000-000000000022", "path": "<Keyboard>/z", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Zero", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "a0000000-0000-4000-8000-000000000023", "path": "<Gamepad>/select", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Zero", "isComposite": false, "isPartOfComposite": false }
+            ]
+        }
+    ],
+    "controlSchemes": [
+        { "name": "Tag", "bindingGroup": "Tag", "devices": [ { "devicePath": "<EdgeTag>", "isOptional": false, "isOR": false } ] },
+        { "name": "Keyboard", "bindingGroup": "Keyboard", "devices": [ { "devicePath": "<Keyboard>", "isOptional": false, "isOR": false } ] },
+        { "name": "Gamepad", "bindingGroup": "Gamepad", "devices": [ { "devicePath": "<Gamepad>", "isOptional": false, "isOR": false } ] }
+    ]
+}

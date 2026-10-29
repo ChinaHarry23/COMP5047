@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 063599452a77740d78f8f7a0c43fb852, type: 3}
+  m_Name: Feeding_LightAverse
+  m_EditorClassIdentifier: Assembly-CSharp::Edge.Feeding.EdgeFeedingPreset
+  displayName: Light-averse bat
+  speciesBlurb: 'Gould''s long-eared bat (Nyctophilus gouldi): slow clutter forager
+    that avoids light - EDGE''s subject.'
+  endMessage: 'Light-averse species like Gould''s long-eared bat lose foraging habitat:
+    the insects gather at lamps they cannot use, and the dark is left poorer.'
+  roundSeconds: 90
+  hungerDrainPerSec: 0.024
+  hungerPerInsect: 0.06
+  startHunger: 0.7
+  insectCount: 220
+  lampShare: 0.75
+  lampSwarmRadius: 3.5
+  darkSpread: 20
+  darkHeight: {x: 1, y: 6}
+  eatRadius: 0.9
+  respawnSeconds: 4
+  insectSpeed: 1.2
+  lightHurts: 1
+  budgetFmm: 12
+  doseMultiplier: 2.5
+  litLuxThreshold: 0.3
+  litSpeedMultiplier: 0.7
+  litInstability: 0.5
+  litHungerDrainPerSec: 0.02
+  ignoreDoseInstability: 0
+  speedMultiplier: 0.85

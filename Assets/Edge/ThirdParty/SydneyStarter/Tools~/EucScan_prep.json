@@ -1,0 +1,64 @@
+{
+  "name": "EucScan",
+  "source": "eucalyptus-tree-scan.fbx",
+  "lods": [
+    {
+      "object": "EucScan_LOD0",
+      "triangles": 4166,
+      "dimensions_m_blender_xyz": [
+        1.7314,
+        1.4606,
+        1.3811
+      ]
+    },
+    {
+      "object": "EucScan_LOD1",
+      "triangles": 1874,
+      "dimensions_m_blender_xyz": [
+        1.7314,
+        1.4603,
+        1.3806
+      ]
+    },
+    {
+      "object": "EucScan_LOD2",
+      "triangles": 623,
+      "dimensions_m_blender_xyz": [
+        1.7251,
+        1.4603,
+        1.3817
+      ]
+    }
+  ],
+  "materials": {
+    "EucTree": [
+      {
+        "file": "euctree_bc.png",
+        "links": [
+          "Base Color"
+        ],
+        "colorspace": "sRGB"
+      },
+      {
+        "file": "EucTree_N.png",
+        "links": [
+          "Color"
+        ],
+        "colorspace": "Non-Color"
+      },
+      {
+        "file": "EucTree_R.png",
+        "links": [
+          "Roughness"
+        ],
+        "colorspace": "Non-Color"
+      },
+      {
+        "file": "euctree_bc.png.png",
+        "links": [],
+        "colorspace": "Non-Color"
+      }
+    ]
+  },
+  "fbx": "EucScan.fbx"
+}

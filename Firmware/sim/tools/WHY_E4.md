@@ -67,12 +67,12 @@ Because of where the lamp sits:
                             and the lamp is 15 nm wide
 ```
 
-**The lamp falls between two channels.** The AS7343 can say *"narrowband, around 590–600 nm, not white"* — which is exactly what `sep2.c` needs — but it cannot pin the peak to ±2 nm.
+**The lamp falls between two channels.** Twelve filter channels can say *"narrowband, around 590–600 nm, not white"* — which is exactly what `sep2.c` needs — but they cannot pin the peak to ±2 nm.
 
 **So the division of labour is:**
 
 - **An outside instrument** produces the spectrum.
-- **The AS7343 verifies** that the lamp matches it.
+- **The filter channels check** that the lamp matches it.
 
 ---
 

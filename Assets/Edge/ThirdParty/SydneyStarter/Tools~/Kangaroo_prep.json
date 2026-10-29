@@ -1,0 +1,117 @@
+{
+  "name": "Kangaroo",
+  "source": "kangaroo.glb",
+  "lods": [
+    {
+      "object": "Kangaroo_LOD0",
+      "triangles": 119718,
+      "dimensions_m_blender_xyz": [
+        0.6338,
+        0.2495,
+        0.5326
+      ]
+    },
+    {
+      "object": "Kangaroo_LOD1",
+      "triangles": 35915,
+      "dimensions_m_blender_xyz": [
+        0.6338,
+        0.2495,
+        0.5326
+      ]
+    },
+    {
+      "object": "Kangaroo_LOD2",
+      "triangles": 9576,
+      "dimensions_m_blender_xyz": [
+        0.6339,
+        0.2496,
+        0.5326
+      ]
+    }
+  ],
+  "materials": {
+    "KGROhr01": [
+      {
+        "file": "KGROhr01_diffuse.jpg",
+        "links": [
+          "Base Color"
+        ],
+        "colorspace": "sRGB"
+      }
+    ],
+    "KGROnail": [
+      {
+        "file": "KGROnail_diffuse.png",
+        "links": [
+          "A"
+        ],
+        "colorspace": "sRGB"
+      }
+    ],
+    "KGROback": [
+      {
+        "file": "KGROback_diffuse.jpg",
+        "links": [
+          "A"
+        ],
+        "colorspace": "sRGB"
+      }
+    ],
+    "KGRObttm": [
+      {
+        "file": "KGRObttm_diffuse.jpg",
+        "links": [
+          "Base Color"
+        ],
+        "colorspace": "sRGB"
+      }
+    ],
+    "KGROear": [
+      {
+        "file": "KGROear_diffuse.jpg",
+        "links": [
+          "A"
+        ],
+        "colorspace": "sRGB"
+      }
+    ],
+    "KGROfrt": [
+      {
+        "file": "KGROfrt_diffuse.jpg",
+        "links": [
+          "Base Color"
+        ],
+        "colorspace": "sRGB"
+      }
+    ],
+    "KGROintr": [
+      {
+        "file": "KGROintr_diffuse.jpg",
+        "links": [
+          "Base Color"
+        ],
+        "colorspace": "sRGB"
+      }
+    ],
+    "KGROmain": [
+      {
+        "file": "KGROmain_diffuse.jpg",
+        "links": [
+          "A"
+        ],
+        "colorspace": "sRGB"
+      }
+    ],
+    "KGROsup": [
+      {
+        "file": "KGROsup_diffuse.jpg",
+        "links": [
+          "A"
+        ],
+        "colorspace": "sRGB"
+      }
+    ]
+  },
+  "fbx": "Kangaroo.fbx"
+}

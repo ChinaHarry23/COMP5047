@@ -5,7 +5,7 @@
  * debouncer every 10 ms, a spectral frame every 200 ms through the real sep2,
  * the startup sequence with a modelled network, and one FSM step every 50 ms.
  * The "plant" half stands in for the hood: it turns the lamp's commanded
- * light, the room light and a torch into AS7343-like frames, and a hand into
+ * light, the room light and a torch into spectral frames, and a hand into
  * force-sensor readings. Invariants I1-I9 (plan 7.4) are checked on every
  * control step; scenarios add their own `expect` checks.
  *

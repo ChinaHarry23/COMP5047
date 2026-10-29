@@ -24,7 +24,7 @@ struct SpectralSource {
     bool (*poll)(uint32_t now_ms, edge_spectral_frame_t *out);
 };
 
-// The bat's AS7343 through lib/as7343 (spectral_as7343.cpp). With no chip
-// fitted it reports "no sensor" at the frame rate, so the exhibit sits in
-// FAULT until one answers.
-extern const SpectralSource kSpectralAs7343;
+// No spectral sensor is fitted (spectral_absent.cpp). begin() returns false
+// and poll() reports valid=false at the frame rate, so the exhibit sits in
+// FAULT.
+extern const SpectralSource kSpectralNone;

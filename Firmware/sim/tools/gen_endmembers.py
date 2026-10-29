@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate PLACEHOLDER AS7343 endmember signatures for lib/core/calib.c and the
+"""Generate PLACEHOLDER spectral endmember signatures for lib/core/calib.c and the
 simulator's synthetic room-light shapes (sim/plant_shapes.h).
 
 Nothing here is measured. Every spectrum is an analytic stand-in, used only
@@ -7,7 +7,7 @@ until E0/E4 replace the tables with signatures captured from the real amber
 star, a phone torch and the presentation room's lights.
 
 Model (all deliberate simplifications, stated so they can be challenged):
-  * Each AS7343 channel is a unit-peak Gaussian at the datasheet's typical
+  * Each spectral channel is a unit-peak Gaussian at the typical
     peak wavelength with the datasheet's typical FWHM. Real channels differ in
     responsivity by up to ~10x and have side lobes; E0 captures that.
   * Amber star: Gaussian at 590 nm, FWHM 15 nm (the "590/15 nm" case in the
@@ -24,7 +24,7 @@ Usage:  python3 sim/tools/gen_endmembers.py
 """
 import numpy as np
 
-# AS7343 typical peak wavelength and FWHM (ams AS7343 datasheet, optical
+# Typical peak wavelength and FWHM of each filter channel (optical
 # characteristics table), in wavelength order. VIS (clear) and FD (flicker) are
 # not used for separation.
 CHANNELS = [

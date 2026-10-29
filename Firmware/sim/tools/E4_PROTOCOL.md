@@ -36,7 +36,7 @@ The archived plan names this risk and it is the one thing that can waste the who
 
 **Never:** a spectrum produced by the firmware's own model.
 
-**The AS7343's role is different.** It cannot resolve a 590 nm peak — its nearest channels are **555 nm (FY)** and **600 nm (FXL)**, 45 nm apart, and the lamp is only 15 nm wide. So the sensor **verifies** that the lamp matches its declared spectrum; it does not *produce* the spectrum.
+**The tag's filter channels cannot resolve a 590 nm peak.** The nearest channels are **555 nm (FY)** and **600 nm (FXL)**, 45 nm apart, and the lamp is only 15 nm wide. Those channels can only check that a lamp matches a spectrum measured by another instrument.
 
 ---
 
@@ -85,7 +85,7 @@ python3 sim/tools/e4_sp.py --selftest
 
 ### Step 1 — Dark reference
 
-All lights off, lamp off. Record the AS7343's 12 channels + clear, 100 averages.
+All lights off, lamp off. Record the 12 filter channels + clear, 100 averages.
 
 **Everything measured later is subtracted from this.** A dark reading taken in a lit room is worthless.
 
@@ -108,7 +108,7 @@ All lights off, lamp off. Record the AS7343's 12 channels + clear, 100 averages.
 - **Phone grating:** same range; **record how you calibrated the wavelength scale.**
 - Note the lamp's drive current. The plan specifies **165–185 mA**; measure at the actual operating point, not at a convenient one.
 
-### Step 5 — Capture the AS7343 channels
+### Step 5 — Capture the filter channels
 
 At the same distance and current:
 
@@ -125,12 +125,12 @@ python3 sim/tools/e4_sp.py --spd measured_lamp_590nm.csv --compare 0.23
 
 ### Step 7 — Verify the lamp against the spectrum
 
-Convolve the measured SPD with the AS7343's channel response curves and compare the **predicted channel ratios** with the measured ones.
+Convolve the measured SPD with the filter-channel response curves and compare the **predicted channel ratios** with the measured ones.
 
 - **They agree** → the SPD is right, use it.
 - **They disagree** → the lamp differs from the spectrum, or the lamp is not the part ordered. **Stop and find out which.** This is the check that catches a mislabelled unit.
 
-**This is the step that makes the AS7343 worth having.** It does not produce the spectrum; it stops you trusting a wrong one.
+**This step checks the lamp against the measured spectrum.** It does not produce the spectrum; it stops you trusting a wrong one.
 
 ### Step 8 — Absolute calibration
 

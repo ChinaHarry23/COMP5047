@@ -1,19 +1,18 @@
 /*
  * spectral.h - one normalised spectral frame from the bat's sensor.
  *
- * This is the contract between a spectral driver (the AS7343 package, or a
- * stub) and the policy core. The driver owns everything chip-specific; the
- * core only ever sees this struct.
+ * This is the contract between a spectral driver and the policy core.
+ * The driver owns everything chip-specific; the core only ever sees this struct.
  *
  * Driver obligations:
- *  - ch[] holds the 12 filtered AS7343 channels in wavelength order (see
+ *  - ch[] holds the 12 filtered channels in wavelength order (see
  *    edge_spec_centre_nm). Each value is in "basic counts":
  *        raw ADC counts / (analog gain multiplier x integration time in ms)
  *    so that auto-gain and integration changes do not change the number.
  *  - clear holds the VIS (clear) channel in the same unit. It is diagnostic
  *    only; separation does not use it. The flicker channel is not carried.
  *  - t_start_ms / t_end_ms bracket the whole read on the application's
- *    millisecond clock. With auto-SMUX the AS7343 reads the channels in
+ *    millisecond clock. A sensor may read the channels in
  *    three sequential integrations, so this is the first start and the last
  *    end; sep2 uses the window to reject frames taken while the lamp changed.
  *  - valid is false when no sensor answered or the read failed. A driver that
@@ -59,7 +58,7 @@ typedef struct {
     bool     saturated;         /* some channel saturated at minimum gain  */
 } edge_spectral_frame_t;
 
-/* Typical peak wavelength of each channel, nm (ams AS7343 datasheet). */
+/* Typical peak wavelength of each channel, nm. */
 extern const float edge_spec_centre_nm[EDGE_SPEC_NCH];
 
 /* Short channel names for logs ("F1", ..., "NIR"). */

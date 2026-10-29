@@ -1,0 +1,6 @@
+EDGE weather sky - asset credits
+- City light-pollution horizon glow: procedural (generated at runtime in EdgeWeatherSky.cs). No third-party asset.
+- Rain streak texture: procedural (generated at runtime). No third-party asset.
+- Thunder rumble: procedural brown-noise synth (EdgeWeatherSky.SynthThunder). No third-party asset.
+  Optional: drop a CC0 clip (e.g. freesound.org CC0) into the thunderClip slot and record it here.
+- Forecast data: Open-Meteo (https://open-meteo.com), ECMWF AIFS model, CC BY 4.0 data licence - attribute "Weather data by Open-Meteo.com".

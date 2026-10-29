@@ -11,7 +11,7 @@
 
 /* ---- control timing ------------------------------------------------------ */
 #define EDGE_STEP_MS              50      /* the single control step (plan 7.2)                          */
-#define EDGE_FRAME_PERIOD_MS      200     /* AS7343 ~5 Hz with auto-SMUX (plan F3); sim cadence           */
+#define EDGE_FRAME_PERIOD_MS      200     /* ~5 Hz spectral frame (plan F3); sim cadence                  */
 #define EDGE_SENSOR_TIMEOUT_MS    1000    /* no valid frame for this long means the bat sensor is missing */
 #define EDGE_FAULT_CLEAR_MS       1000    /* sensor back this long before FAULT clears (plan 7.3, I5)     */
 

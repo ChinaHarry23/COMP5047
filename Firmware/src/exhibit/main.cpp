@@ -34,10 +34,9 @@
 
 namespace {
 
-// The bat's light input. Its driver owns the I2C bus (PIN_I2C_SDA/SCL): bus
-// recovery restarts Wire and drives the pins directly, so no other device may
-// share that bus without reviewing lib/as7343's recoverBus().
-const SpectralSource &g_spectral = kSpectralAs7343;
+// No spectral sensor is fitted. Pins 21/22 stay claimed so another device
+// cannot reuse them by accident.
+const SpectralSource &g_spectral = kSpectralNone;
 
 // Every pin this build claims, once each: assigning one pin twice fails the build.
 constexpr uint8_t kPinsUsed[] = {

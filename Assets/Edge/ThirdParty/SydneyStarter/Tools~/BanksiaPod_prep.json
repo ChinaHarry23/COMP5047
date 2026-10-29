@@ -1,0 +1,52 @@
+{
+  "name": "BanksiaPod",
+  "source": "banksia-seed-pod.fbx",
+  "lods": [
+    {
+      "object": "BanksiaPod_LOD0",
+      "triangles": 23348,
+      "dimensions_m_blender_xyz": [
+        0.0383,
+        0.0446,
+        0.0928
+      ]
+    },
+    {
+      "object": "BanksiaPod_LOD1",
+      "triangles": 5836,
+      "dimensions_m_blender_xyz": [
+        0.0383,
+        0.0448,
+        0.0927
+      ]
+    },
+    {
+      "object": "BanksiaPod_LOD2",
+      "triangles": 1556,
+      "dimensions_m_blender_xyz": [
+        0.0379,
+        0.0443,
+        0.0931
+      ]
+    }
+  ],
+  "materials": {
+    "tex_u1_v1": [
+      {
+        "file": "tex_u1_v1_diffuse.jpg",
+        "links": [
+          "Base Color"
+        ],
+        "colorspace": "sRGB"
+      },
+      {
+        "file": "tex_u1_v1_normal.jpg",
+        "links": [
+          "Color"
+        ],
+        "colorspace": "Non-Color"
+      }
+    ]
+  },
+  "fbx": "BanksiaPod.fbx"
+}

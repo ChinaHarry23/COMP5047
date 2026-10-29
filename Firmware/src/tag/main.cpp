@@ -83,8 +83,7 @@ void i2cScan() {
         Wire.beginTransmission(a);
         if (Wire.endTransmission() == 0) {
             const char *name = a == 0x68 || a == 0x69 ? "  (MPU-6050)"
-                             : a == 0x23 || a == 0x5C ? "  (BH1750)"
-                             : a == 0x39 ? "  (AS7343)" : "";
+                             : a == 0x23 || a == 0x5C ? "  (BH1750)" : "";
             Serial.printf("  found 0x%02X%s\n", a, name);
             ++n;
         }
@@ -204,6 +203,9 @@ void wifiStart() {
 }
 
 void sockOpen() {
+#if !TAG_HAVE_SECRETS
+    return;   // no Wi-Fi stack: socket() would assert (lwIP not initialised)
+#endif
     g_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     int yes = 1;
     setsockopt(g_sock, SOL_SOCKET, SO_BROADCAST, &yes, sizeof yes);

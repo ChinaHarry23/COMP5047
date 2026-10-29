@@ -1,7 +1,0 @@
-{
-  "name": "as7343",
-  "version": "0.1.0",
-  "description": "Register-level Arduino Wire driver for the ams-OSRAM AS7343 spectral sensor (Pimoroni PIM707), written from datasheet DS001046 v6-00.",
-  "frameworks": "arduino",
-  "platforms": "espressif32"
-}
