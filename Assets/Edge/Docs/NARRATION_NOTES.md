@@ -94,6 +94,10 @@ With an `EdgeFeedingGame` in the scene the narrator narrates the game, not the e
 - **Light-tolerant (Gould's wattled bat):** cocky party animal; lamps are a moth buffet. Gemini voice `Fenrir`, Mac fallback `Rocko (English (UK))`.
 - **Light-averse (Gould's long-eared bat):** anxious introvert; lamps are blinding spotlights. Gemini voice `Enceladus`, Mac fallback `Flo (English (UK))`.
 
-Events: round start, moth eaten (first, then every `mothLineEvery`), entered/left light (lamps or real room light), long dark stretch, energy below 25%, night vision below 30% (light-averse), real flash/torch from the room (`EdgeLightEffects.RealLightHit`), round over. Nothing is said on the start screen. Context sent to Gemini: event, bat, moths eaten, energy %, night vision % (light-averse), seconds left, in light, dark for (s), plus the real-light detail or the round result.
+Round intro: choosing a bat (start screen, results screen or a switch of bat) holds the bat still with the timer and light paused (`EdgeFeedingGame.introSeconds`, at least 3 s, extended to the clip length) and plays a pre-recorded clip: `Assets/Edge/Audio/Narration/intro_light_tolerant.wav` (Fenrir: "Ohhh yeahhh! Lights on, moths out. Ready to rumble!") and `intro_light_averse.wav` (Enceladus: "Um... it's really bright out there. Do I have to?"). Pre-recorded because a live line takes ~7 s (text ~1-2 s + Gemini TTS ~5 s). R mid-round has no intro.
+
+Pacing: at least 8 s between lines (`cooldownSeconds`, `ttsMinLineInterval`); each line is a text + a TTS call, so `GeminiClient.maxCallsPerMinute` is 16. A 429 from Gemini backs off and the offline line is used.
+
+Events: moth eaten (first, then every `mothLineEvery`), entered/left light (lamps or real room light), long dark stretch, energy below 25%, night vision below 30% (light-averse), real flash/torch from the room (`EdgeLightEffects.RealLightHit`), round over. Nothing is said on the start screen. Context sent to Gemini: event, bat, moths eaten, energy %, night vision % (light-averse), seconds left, in light, dark for (s), plus the real-light detail or the round result.
 
 Prompt guardrails (`GameRules`): one sentence, at most 15 words, PG, tease the lamps never the visitor, keep the light facts true, no invented numbers.

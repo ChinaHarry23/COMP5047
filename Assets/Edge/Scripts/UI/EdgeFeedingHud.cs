@@ -251,7 +251,7 @@ namespace Edge.UI
             float y = r.y + 92f, lx = r.x + 74f, vw = 150f, vx = r.xMax - 22f - vw;
             // moths, with a bar against the better of the two bats
             o.Image(id + ".i0", R(r.x + 24f, y + 4f, 36f, 36f), "moth", Warm);
-            o.Text(id + ".l0", R(lx, y, vx - lx, 44f), "Moths caught", UiFont.Body, 21, Muted, TextAnchor.MiddleLeft, false);
+            o.Text(id + ".l0", R(lx, y, vx - lx, 44f), "Moths eaten", UiFont.Body, 21, Muted, TextAnchor.MiddleLeft, false);
             o.Text(id + ".v0", R(vx, y - 4f, vw, 50f), s.moths.ToString(), UiFont.Title, 36, Ink, TextAnchor.MiddleRight);
             Bar(o, id + ".bar", R(lx, y + 46f, r.xMax - 22f - lx, 10f), s.moths / (float)maxMoths, A(tint, 0.95f));
             o.Text(id + ".best", R(lx, y + 58f, r.xMax - 22f - lx, 24f), "today's best " + s.best, UiFont.Body, 16, A(Muted, 0.85f), TextAnchor.MiddleRight, false);

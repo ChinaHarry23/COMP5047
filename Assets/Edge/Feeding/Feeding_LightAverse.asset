@@ -16,7 +16,7 @@ MonoBehaviour:
   speciesBlurb: 'Gould''s long-eared bat (Nyctophilus gouldi): slow clutter forager
     that avoids light - EDGE''s subject.'
   endMessage: 'Light-averse species like Gould''s long-eared bat lose foraging habitat:
-    the insects gather at lamps they cannot use, and the dark is left poorer.'
+    the moths gather at lamps they cannot use, and the dark is left poorer.'
   roundSeconds: 45
   hungerDrainPerSec: 0.012
   hungerPerInsect: 0.06

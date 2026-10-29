@@ -50104,6 +50104,7 @@ MonoBehaviour:
   eatVibSeconds: 0.12
   debugHudKey: 22
   hintFadeSeconds: 3
+  introSeconds: 3
   newVisitAfterSeconds: 45
   themedUi: 1
 --- !u!4 &1037284634
@@ -65594,7 +65595,7 @@ MonoBehaviour:
   esp32Host: 192.168.4.1
   esp32Port: 1235
   ttsFallbackToMacVoice: 1
-  ttsMinLineInterval: 15
+  ttsMinLineInterval: 8
   macVoiceTolerant: Rocko (English (UK))
   macVoiceAverse: Flo (English (UK))
   ttsVoiceTolerant: Fenrir
@@ -65604,6 +65605,10 @@ MonoBehaviour:
   ttsStyleAverse: jittery, anxious, breathy; dramatic comic panic, then big sighs
     of relief
   mothLineEvery: 4
+  introClipTolerant: {fileID: 8300000, guid: f5f066beb3ebd4d65a4f177e4f205825, type: 3}
+  introClipAverse: {fileID: 8300000, guid: 329302652d7fb4d1aadc90aa4720c695, type: 3}
+  introLineTolerant: Ohhh yeahhh! Lights on, moths out. Ready to rumble!
+  introLineAverse: Um... it's really bright out there. Do I have to?
   useGemini: 1
   gemini:
     model: gemini-3.5-flash-lite
@@ -65615,12 +65620,12 @@ MonoBehaviour:
     timeoutSeconds: 6
     ttsTimeoutSeconds: 30
     minSecondsBetweenCalls: 6
-    maxCallsPerMinute: 8
-    maxCallsPerSession: 250
+    maxCallsPerMinute: 16
+    maxCallsPerSession: 600
     temperature: 1
     maxOutputTokens: 200
   sampleInterval: 0.5
-  cooldownSeconds: 10
+  cooldownSeconds: 8
   urgentCooldownSeconds: 5
   darkStretchSeconds: 30
   pendingLifetime: 6

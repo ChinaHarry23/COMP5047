@@ -100,7 +100,7 @@ namespace Edge.Feeding
             p.name = "Feeding_LightAverse";
             p.displayName = "Light-averse bat";
             p.speciesBlurb = "Gould's long-eared bat (Nyctophilus gouldi): slow clutter forager that avoids light - EDGE's subject.";
-            p.endMessage = "Light-averse species like Gould's long-eared bat lose foraging habitat: the insects gather at lamps they cannot use, and the dark is left poorer.";
+            p.endMessage = "Light-averse species like Gould's long-eared bat lose foraging habitat: the moths gather at lamps they cannot use, and the dark is left poorer.";
             p.lightHurts = true; p.ignoreDoseInstability = false; p.speedMultiplier = 0.85f;
             p.lampShare = 0.75f; p.hungerDrainPerSec = 0.012f; p.bumpHungerCost = 0.015f; // clutter specialist: agile, small penalty
             p.budgetFmm = 30f; p.doseMultiplier = 2.5f;   // about 14 s under a lamp in total, so a dash for a moth is possible

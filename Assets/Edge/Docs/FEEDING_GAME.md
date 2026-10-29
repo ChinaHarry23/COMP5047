@@ -9,7 +9,7 @@ both variants; what changes is whether the bat can use them.
    (`BatFlightController`), `UdpLink`, every `LampZone`, and creates the two presets in
    `Assets/Edge/Feeding/`. **Save the scene** to keep it (the menu only marks it dirty).
 3. **EDGE › Feeding Game › Set Variant: Light-Tolerant / Light-Averse** (works in Play mode too).
-4. Press Play → start screen → **Space / Enter** (gamepad Start).
+4. Press Play → start screen → **Space / Enter** (gamepad Start) or **1 / 2**. The chosen bat introduces itself for ~4 s (held still, timer paused), then the round starts.
 
 Remove it by deleting the `EdgeFeedingGame` object — the exhibit then behaves exactly as before
 (all `BatFlightController` modifiers default to neutral and are reset when the component is disabled).
@@ -29,8 +29,8 @@ Eat by flying within `eatRadius` of a moth: crunch sound (procedural), a tiny br
 burst to the tag (LED on D3 flashes). In the light-averse variant the tag LED also glows while you are in light.
 
 ## HUD
-* **Playing:** one small top-right cluster — `score · time`, a thin green hunger bar, and (variant B only)
-  a thin amber light-budget bar that turns red while you are in light. A one-line hint fades out after ~3 s.
+* **Playing:** one small top-right cluster — `score · time`, a thin green energy bar, and (variant B only)
+  a thin amber night vision (light budget) bar that turns red while you are in light. A one-line hint fades out after ~3 s.
 * The exhibit `EdgeHud` goes **compact** while the game is active: only a tiny dot top-left
   (green = tag streaming, grey = keyboard). In variant A the exhibit budget-spent overlay is hidden too.
 * **Start screen:** species blurb + all key hints. **End screen:** score + one-line species message.
