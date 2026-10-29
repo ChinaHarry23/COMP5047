@@ -73,6 +73,8 @@ namespace Edge.Feeding
         public float eatVibSeconds = 0.12f;
         public Key debugHudKey = Key.H;
         public float hintFadeSeconds = 3f;
+        [Tooltip("When a bat is chosen, it waits this long at the start while it introduces itself (0 = off)")]
+        public float introSeconds = 3f;
         [Tooltip("Results screen idle this long (s) = the next visitor: back to the start screen, two-bat comparison cleared (0 = never)")]
         public float newVisitAfterSeconds = 45f;
 
@@ -84,6 +86,8 @@ namespace Edge.Feeding
         public event Action<int> InsectEaten;
         public event Action<Variant, int, string> RoundEnded;
         public event Action<Variant> RoundStarted;
+        /// A chosen bat's round begins with an intro (bat held still, timer and light paused).
+        public event Action<Variant> IntroStarted;
 
         public State CurrentState { get; private set; }
         public int Score { get; private set; }
@@ -146,6 +150,8 @@ namespace Edge.Feeding
         EdgeLightEffects _fx;
         Vector3 _startPos, _pathMin, _pathMax;
         float _startHeading, _budgetFmm, _vibUntil, _playStart, _lastPing = -100f, _scorePulse = -100f, _endedAt;
+        float _introUntil = -1f;
+        Variant _roundVariant;
         int _darkAtStart;
         static readonly RaycastHit[] GroundHits = new RaycastHit[16];
         System.Random _rng = new System.Random(5047);
@@ -167,6 +173,7 @@ namespace Edge.Feeding
         MaterialPropertyBlock _lampMpb;
 
         bool InLightGrace => CurrentState == State.Playing && Time.unscaledTime - _playStart < Preset.lightGraceSeconds;
+        public bool InIntro => CurrentState == State.Playing && Time.unscaledTime < _introUntil;
 
         void Awake()
         {
@@ -470,6 +477,8 @@ namespace Edge.Feeding
         public void Restart()
         {
             var p = Preset;
+            // a bat chosen on the start or results screen (or a switch of bat) introduces itself; R mid-round does not
+            bool intro = introSeconds > 0f && (CurrentState != State.Playing || variant != _roundVariant);
             Score = 0;
             RivalScore = 0;
             LightSeconds = 0f;
@@ -485,11 +494,23 @@ namespace Edge.Feeding
             if (flight) flight.ResetPose(_startPos, _startHeading);
             if (flight && flight.dose) flight.dose.ResetVirtual();   // the exhibit dose must not carry over between rounds
             CurrentState = State.Playing;
-            _playStart = Time.unscaledTime;
+            _roundVariant = variant;
+            _introUntil = intro ? Time.unscaledTime + introSeconds : -1f;
+            _playStart = intro ? _introUntil : Time.unscaledTime;   // hint and light grace start after the intro
             if (_sfx) _sfx.ResetStreak();
             ApplyFlightMods(true);
             ApplyHud();
             RoundStarted?.Invoke(variant);
+            if (intro) IntroStarted?.Invoke(variant);
+        }
+
+        /// Keep the current intro going for at least this long from its start (e.g. the length of the
+        /// narrator's intro clip), so the line is never cut off.
+        public void HoldIntroAtLeast(float seconds)
+        {
+            if (!InIntro) return;
+            float until = _introUntil - introSeconds + seconds;
+            if (until > _introUntil) { _introUntil = until; _playStart = until; }
         }
 
         /// End the running round now (e.g. from the CLI); shows the results screen.
@@ -579,7 +600,11 @@ namespace Edge.Feeding
 
             float dt = Time.deltaTime;
             Simulate(dt);
-            if (CurrentState == State.Playing) Tick(dt);
+            if (CurrentState == State.Playing)
+            {
+                if (InIntro) { if (flight) flight.ResetPose(_startPos, _startHeading); }   // hold still; no timer, no light
+                else Tick(dt);
+            }
             else if (_sfx) _sfx.SetApproach(0f, 0f);
             Draw();
             if (_ui) DrawUi();
@@ -629,7 +654,7 @@ namespace Edge.Feeding
                 if (InLight || beamed) Hunger01 -= p.litHungerDrainPerSec * dt;
                 // the lamp's weak hum comes from EdgeLightEffects (design mapping); same hum here if that is missing/off
                 if (InLight && !(Fx && Fx.isActiveAndEnabled)) vib = Mathf.Max(vib, 0.22f);
-                if (_budgetFmm <= 0f) { End("Light budget spent — forced to retreat to the roost."); return; }
+                if (_budgetFmm <= 0f) { End("Night vision gone: too much light, back to the roost."); return; }
             }
             else if (flight) { flight.extraInstability01 = 0f; }
 
@@ -676,7 +701,7 @@ namespace Edge.Feeding
 
             Hunger01 -= p.hungerDrainPerSec * dt;
             TimeLeft -= dt;
-            if (Hunger01 <= 0f) { Hunger01 = 0f; End("Starved — not enough insects."); }
+            if (Hunger01 <= 0f) { Hunger01 = 0f; End("Out of energy: not enough moths."); }
             else if (TimeLeft <= 0f) { TimeLeft = 0f; End("Night's over."); }
         }
 
@@ -896,8 +921,8 @@ namespace Edge.Feeding
             var ra = _results[(int)Variant.LightAverse];
             return !(rt.played && ra.played) ? p.endMessage
                 : rt.moths > ra.moths
-                    ? $"Same night, same insects: the light-tolerant bat caught {rt.moths}, the light-averse bat {ra.moths}. The lamps decided who ate."
-                    : $"The light-averse bat found {ra.moths} in the dark this time (light-tolerant: {rt.moths}). On most lit nights the lamps take that food first.";
+                    ? $"Same night. Unequal feast. The light-tolerant bat ate {rt.moths} moths, the light-averse bat {ra.moths}. The lamps decided who ate."
+                    : $"The light-averse bat ate {ra.moths} moths in the dark this time (light-tolerant: {rt.moths}). On most lit nights the lamps take that food first.";
         }
 
         // ---- themed screens (uGUI) ------------------------------------------------------
@@ -942,7 +967,7 @@ namespace Edge.Feeding
                 hint = p.displayName + ": " + (string.IsNullOrEmpty(p.playHint) ? "fly through moths to eat." : p.playHint),
                 hintAlpha = CurrentState == State.Playing ? Mathf.Clamp01(hintFadeSeconds + 1f - age) : 0f,   // hold, then a 1 s fade
                 endReason = EndReason, verdict = Verdict(p),
-                debug = DebugHud ? $"{p.displayName} | lux {LuxAtBat:F2} (real {(Fx ? Fx.RealGameLux : 0f):F2}) {(InLight ? "LIT" : "dark")} | hunger {Hunger01 * 100f:F0}% budget {Budget01 * 100f:F0}% | at lamps {LampShare01 * 100f:F0}% rivals {RivalScore}\n[1][2] variant  [R] restart  [E] ping  [H] HUD" : null,
+                debug = DebugHud ? $"{p.displayName} | lux {LuxAtBat:F2} (real {(Fx ? Fx.RealGameLux : 0f):F2}) {(InLight ? "LIT" : "dark")} | energy {Hunger01 * 100f:F0}% night vision {Budget01 * 100f:F0}% | at lamps {LampShare01 * 100f:F0}% rivals {RivalScore}\n[1][2] variant  [R] restart  [E] ping  [H] HUD" : null,
                 subtitle = _ui.Subtitle, subtitleAlpha = _ui.SubtitleAlpha,
             };
             int n = 0;
@@ -997,7 +1022,7 @@ namespace Edge.Feeding
 
             if (DebugHud)
                 GUI.Label(new Rect(x - 300f, y + 12f, w + 300f, 60f),
-                    $"{p.displayName} | lux {LuxAtBat:F2} (real {(Fx ? Fx.RealGameLux : 0f):F2}) {(InLight ? "LIT" : "dark")} | hunger {Hunger01 * 100f:F0}% budget {Budget01 * 100f:F0}% | at lamps {LampShare01 * 100f:F0}% rivals {RivalScore}\n[1][2] variant  [R] restart  [E] ping  [H] HUD", _small);
+                    $"{p.displayName} | lux {LuxAtBat:F2} (real {(Fx ? Fx.RealGameLux : 0f):F2}) {(InLight ? "LIT" : "dark")} | energy {Hunger01 * 100f:F0}% night vision {Budget01 * 100f:F0}% | at lamps {LampShare01 * 100f:F0}% rivals {RivalScore}\n[1][2] variant  [R] restart  [E] ping  [H] HUD", _small);
 
             // +1 rising from each catch
             var cam = ActiveCamera();
@@ -1032,7 +1057,7 @@ namespace Edge.Feeding
                 Panel(sp, white);
                 GUI.Label(new Rect(sp.x, sp.y + 15f, sp.width, 36f), "Night Feeding", _big);
                 GUI.Label(new Rect(sp.x + 30f, sp.y + 60f, sp.width - 60f, 150f),
-                    $"{p.speciesBlurb}\n\nFly through moths to eat before hunger runs out.\n" +
+                    $"{p.speciesBlurb}\n\nFly through moths to eat them before your energy runs out.\n" +
                     "[1] light-tolerant   [2] light-averse   [R] restart   [E] echolocate   [H] HUD\n\n" +
                     "SPACE / ENTER to start", _wrap);
                 return;

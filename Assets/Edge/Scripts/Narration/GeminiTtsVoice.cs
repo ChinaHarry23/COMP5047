@@ -39,6 +39,8 @@ namespace Edge.Narration
             if (string.IsNullOrWhiteSpace(text)) return;
             // keyed by voice too: each bat has its own voice, and the same words must not replay in the other one
             if (cacheAudio && _cache.TryGetValue(CacheKey(text), out var cached) && cached) { Play(cached, false); return; }
+            // out of TTS quota for today: straight to the fallback voice, no doomed request and retry
+            if (_client.ttsOutForSession) { if (fallbackToOtherVoice) _fallback.Speak(text); return; }
             int tok = ++_token;
             _pending = true;
             Attempt(text, tok, 0);
@@ -58,7 +60,7 @@ namespace Edge.Narration
             }, err =>
             {
                 if (tok != _token) return;
-                if (attempt == 0)
+                if (attempt == 0 && !_client.ttsOutForSession)
                 {
                     Debug.LogWarning($"[EDGE Narration] Gemini TTS failed ({err}); retrying once in {retryDelaySeconds:0.#} s (voice {_client.ttsVoice})");
                     RetryLater(text, tok);
