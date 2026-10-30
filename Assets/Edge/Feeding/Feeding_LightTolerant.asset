@@ -17,7 +17,7 @@ MonoBehaviour:
     that hunts moths at streetlights.'
   endMessage: 'Light-tolerant species can gain from streetlights: moths gather at
     lamps, and these fast open-air bats exploit them.'
-  roundSeconds: 90
+  roundSeconds: 45
   hungerDrainPerSec: 0.02
   hungerPerInsect: 0.06
   startHunger: 0.7
@@ -29,6 +29,12 @@ MonoBehaviour:
   eatRadius: 0.9
   respawnSeconds: 4
   insectSpeed: 1.2
+  lampOrbitRadius: {x: 0.5, y: 2}
+  dartRate: 0.6
+  echoMode: 1
+  echoInterval: 0
+  echoRadius: 20
+  echoDuration: 1.5
   lightHurts: 0
   budgetFmm: 12
   doseMultiplier: 2.5
@@ -36,5 +42,14 @@ MonoBehaviour:
   litSpeedMultiplier: 0.7
   litInstability: 0.5
   litHungerDrainPerSec: 0.02
+  lightGraceSeconds: 4
   ignoreDoseInstability: 1
+  bumpHungerCost: 0.03
   speedMultiplier: 1.15
+  lampPull: 0.5
+  lampPullRange: 22
+  rivalBats: -1
+  lightEffectScale: -1
+  lampBrightness: -1
+  lampGlow: -1
+  playHint: 

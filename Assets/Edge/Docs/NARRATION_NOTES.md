@@ -88,3 +88,16 @@ Set `voiceKind = Esp32Speaker`. The narration logic doesn't change, because it o
 - **Lamps**: fly into a lamp to trigger enter_lamp, then leave it. Keep flying through lamps to pass the budget thresholds 75/50/25/10/spent.
 - **Weather**: select Weather Sky, then use EDGE > Weather > Force > … (or the forceWeather toggle) during Play. The weather_changed event fires.
 - **Darkness**: stay out of all lamp light for 30 s to get a long_dark_stretch line.
+
+## Feeding game: two comic bats (30 Oct)
+With an `EdgeFeedingGame` in the scene the narrator narrates the game, not the exhibit dose. Each bat has its own persona, prompt, offline lines and voice, switched at every round start:
+- **Light-tolerant (Gould's wattled bat):** cocky party animal; lamps are a moth buffet. Gemini voice `Fenrir`, Mac fallback `Rocko (English (UK))`.
+- **Light-averse (Gould's long-eared bat):** anxious introvert; lamps are blinding spotlights. Gemini voice `Enceladus`, Mac fallback `Flo (English (UK))`.
+
+Round intro: choosing a bat (start screen, results screen or a switch of bat) holds the bat still with the timer and light paused (`EdgeFeedingGame.introSeconds`, at least 3 s, extended to the clip length) and plays a pre-recorded clip: `Assets/Edge/Audio/Narration/intro_light_tolerant.wav` (Fenrir: "Ohhh yeahhh! Lights on, moths out. Ready to rumble!") and `intro_light_averse.wav` (Enceladus: "Um... it's really bright out there. Do I have to?"). Pre-recorded because a live line takes ~7 s (text ~1-2 s + Gemini TTS ~5 s). R mid-round has no intro.
+
+Pacing: at least 8 s between lines (`cooldownSeconds`, `ttsMinLineInterval`); each line is a text + a TTS call, so `GeminiClient.maxCallsPerMinute` is 16. A 429 from Gemini backs off and the offline line is used.
+
+Events: moth eaten (first, then every `mothLineEvery`), entered/left light (lamps or real room light), long dark stretch, energy below 25%, night vision below 30% (light-averse), real flash/torch from the room (`EdgeLightEffects.RealLightHit`). Nothing is said outside a round: when a round ends, anything queued, being written or still speaking is dropped. Once both bats have played, a scripted explanation (`summaryLine`, or `summaryLineAverseWon` when the long-eared bat ate as many or more) is spoken in a narrator voice (Gemini `Charon`, Mac `Daniel`), or played from `summaryClip` / `summaryClipAverseWon` if recordings are assigned. Context sent to Gemini: event, bat, moths eaten, energy %, night vision % (light-averse), seconds left, in light, dark for (s), plus the real-light detail.
+
+Prompt guardrails (`GameRules`): one sentence, at most 15 words, PG, tease the lamps never the visitor, keep the light facts true, no invented numbers.

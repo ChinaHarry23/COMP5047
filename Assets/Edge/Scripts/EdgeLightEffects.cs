@@ -10,8 +10,10 @@ namespace Edge
     //   phone flash       sudden white-out + shake, fading over ~2.5 s   one strong buzz
     // The same mapping is used for light in the game (LampZone, EdgeBeam, flash photos from
     // EdgeBenchSitter) and light in the real room: the tag's classifier sends
-    // "CLS <none|lamp|bike|torch|flash> [confidence]"; until it ships, a sudden jump in the tag's
-    // "LUX" stream counts as a phone flash.
+    // "CLS <none|lamp|bike|torch|flash> [confidence]"; until it ships, the tag's "LUX" stream is read
+    // against the room's learned normal light: a sudden jump counts as a phone flash, and light that
+    // stays up (a held torch) is steady real light. RealGameLux feeds that steady light into the
+    // feeding game's light budget, so a torch on the bat hurts like a lamp.
     //
     // Safety (risk table): nothing strobes. Overlays only fade, flashes are rate-limited and capped
     // below full white. Vibration and steering instability go to BatFlightController
@@ -70,6 +72,14 @@ namespace Edge
         public float luxFlashMin = 150f;
         public float luxFlashRatio = 3f;
         [Tooltip("A class is dropped this long after its last CLS message (s)")] public float classTimeout = 0.6f;
+        [Tooltip("LUX above the flash threshold for longer than this (s) is a held torch: steady light on the bat")]
+        public float realSteadyAfter = 0.5f;
+        [Tooltip("Real light this many times the threshold is full strength")]
+        public float realFullRatio = 4f;
+        [Tooltip("Full-strength real light as lux at the bat in the game's lamp units (right under a lamp is about 0.8)")]
+        public float realGameLux = 1f;
+        [Tooltip("The room's normal light is not re-learned while a torch is held, for up to this long (s)")]
+        public float realHoldLearnSeconds = 30f;
 
         public float Haze01 { get; private set; }
         public float Beam01 { get; private set; }
@@ -78,8 +88,17 @@ namespace Edge
         public bool Flashing => Flash01 > 0.1f;
         public string RealClass { get; private set; } = "none";
 
+        /// Steady real-room light on the tag, 0..1: a held torch (from LUX) or a CLS lamp/bike/torch class.
+        /// 0 for no light, during a short flash, or when the tag stops sending.
+        public float RealLight01 { get; private set; }
+        /// RealLight01 as lux at the bat in the game's lamp units, so it can add to the lamps' light.
+        public float RealGameLux => RealLight01 * realGameLux;
+
         /// "lamp", "torch", "bike" or "flash", once at the onset of each exposure (narration, stats).
         public event Action<string> LightHit;
+        /// Real-room light only ("flash", "torch", "bike" or "lamp"), once per exposure. Static so listeners
+        /// (the narrator) need not wait for this component to be created.
+        public static event Action<string> RealLightHit;
 
         struct Glow { public Vector2 screen; public float k; }
         readonly Glow[] _glows = new Glow[16];
@@ -87,6 +106,8 @@ namespace Edge
         Texture2D _glowTex, _streakTex;
         float _flashAt = -100f, _flashK, _buzzUntil = -100f, _bumpAt = -100f;
         float _luxBase = -1f, _lastLux, _realAt = -100f, _realConf, _realBeam;
+        float _aboveSince = -1f, _realTarget, _realMsgAt = -100f, _clsAt = -100f;
+        bool _realSteady;
         string _beamKind = "torch";
         bool _wasBeam, _wasLamp;
         Transform _shaken;
@@ -166,17 +187,45 @@ namespace Edge
                 var p = msg.Split(' ');
                 string cls = p.Length > 1 ? p[1].ToLowerInvariant() : "none";
                 float conf = p.Length > 2 && float.TryParse(p[2], NumberStyles.Float, ci, out float c) ? Mathf.Clamp01(c) : 1f;
+                string before = RealClass;
                 SetRealClass(cls, conf);
+                if (RealClass != before && RealClass != "none") RealLightHit?.Invoke(RealClass);
+                _clsAt = _realMsgAt = Time.time;
+                _realTarget = RealClass == "none" || RealClass == "flash" ? 0f : conf;
                 return;
             }
             if (luxFlashDetect && msg.StartsWith("LUX ") &&
                 float.TryParse(msg.Substring(4), NumberStyles.Float, ci, out float lux))
             {
+                float now = Time.time;
                 if (_luxBase < 0f) _luxBase = lux;
                 float thresh = Mathf.Max(luxFlashMin, _luxBase * luxFlashRatio);
-                if (lux >= thresh && _lastLux < thresh) Flash(Mathf.Clamp01(lux / (thresh * 4f)) * 0.5f + 0.5f);
-                // ~3 s at 10 Hz below the threshold; slowly above it too, so a room that stays brighter re-arms
-                _luxBase = Mathf.Lerp(_luxBase, lux, lux < thresh ? 0.03f : 0.005f);
+                bool above = lux >= thresh;
+                // the onset of any sudden light is startling: phone flash or the first moment of a torch
+                if (above && _lastLux < thresh)
+                {
+                    _aboveSince = now;
+                    Flash(Mathf.Clamp01(lux / (thresh * 4f)) * 0.5f + 0.5f);
+                    RealLightHit?.Invoke("flash");
+                }
+                if (!above) { _aboveSince = -1f; _realSteady = false; }
+
+                // still bright after realSteadyAfter: a held torch, steady light that scales with brightness
+                bool classifier = listenForClassifier && now - _clsAt < classTimeout * 2f;   // CLS wins
+                if (above && _aboveSince >= 0f && now - _aboveSince >= realSteadyAfter && !classifier)
+                {
+                    float level = Mathf.Lerp(0.3f, 1f, Mathf.Clamp01((lux / thresh - 1f) / Mathf.Max(0.01f, realFullRatio - 1f)));
+                    if (!_realSteady) { _realSteady = true; RealLightHit?.Invoke("torch"); }
+                    SetRealClass("torch", level);   // glare + pulsing buzz; times out if the LUX stream stops
+                    _realTarget = level;
+                }
+                else if (!classifier) _realTarget = 0f;
+                _realMsgAt = now;
+
+                // ~3 s at 10 Hz below the threshold. Above it the room is not re-learned while a torch is
+                // held (up to realHoldLearnSeconds), then slowly, so a room that stays brighter re-arms.
+                float learn = !above ? 0.03f : (_aboveSince >= 0f && now - _aboveSince < realHoldLearnSeconds ? 0f : 0.005f);
+                _luxBase = Mathf.Lerp(_luxBase, lux, learn);
                 _lastLux = lux;
             }
         }
@@ -209,6 +258,8 @@ namespace Edge
         void LateUpdate()
         {
             float t = Time.time, dt = Time.deltaTime;
+            // eased like the glare, and back to 0 when the tag goes quiet (paused, lost, unplugged)
+            RealLight01 = Mathf.MoveTowards(RealLight01, t - _realMsgAt < 0.6f ? _realTarget : 0f, 3f * dt);
             Vector3 bat = flight ? flight.transform.position : transform.position;
             var cam = ActiveCamera();
 
@@ -301,7 +352,7 @@ namespace Edge
         // ---- overlay -------------------------------------------------------------------------
         void OnGUI()
         {
-            if (Event.current.type != EventType.Repaint) return;   // scale 0 still shows the flash minimum below
+            if (Event.current.type != EventType.Repaint) return;
             GUI.depth = 10;   // behind the HUDs (depth 0)
             var full = new Rect(0f, 0f, Screen.width, Screen.height);
             var white = Texture2D.whiteTexture;
@@ -324,7 +375,9 @@ namespace Edge
             float wash = Beam01 * 0.25f * scale;
             if (wash > 0.003f) { GUI.color = new Color(glareColor.r, glareColor.g, glareColor.b, wash); GUI.DrawTexture(full, white); }
 
-            float fl = Flash01 * flashMaxAlpha * Mathf.Max(scale, 0.25f);
+            // overlays blend in linear space, so even a small alpha reads bright: the flash follows
+            // `scale` like the rest, and the light-tolerant bat is not whited out by every photo
+            float fl = Flash01 * flashMaxAlpha * scale;
             if (fl > 0.003f) { GUI.color = new Color(flashColor.r, flashColor.g, flashColor.b, fl); GUI.DrawTexture(full, white); }
             GUI.color = Color.white;
         }

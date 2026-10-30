@@ -109,6 +109,7 @@ namespace Edge.Feeding
                 _echoD += (Mathf.Lerp(0.085f, 0.012f, _c) * _sr - _echoD) * kSlow;
                 float rp = _w - _echoD;
                 if (rp < 0f) rp += _delay.Length;
+                if (rp >= _delay.Length) rp -= _delay.Length;   // -1e-7 + Length rounds up to Length in float
                 int r0 = (int)rp, r1 = (r0 + 1) % _delay.Length;
                 float echo = Mathf.Lerp(_delay[r0], _delay[r1], rp - r0);
                 _echoLp += (echo - _echoLp) * _aEcho;

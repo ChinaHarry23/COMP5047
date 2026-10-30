@@ -33,8 +33,8 @@ namespace Edge.Narration
         [Tooltip("TTS requests take much longer than text; 6 s caused 'Request timeout' failures.")]
         public int ttsTimeoutSeconds = 30;
         public float minSecondsBetweenCalls = 6f;   // <= 10 requests/min
-        public int maxCallsPerMinute = 8;          // text + TTS calls combined
-        public int maxCallsPerSession = 250;
+        public int maxCallsPerMinute = 16;         // text + TTS calls combined: one line every ~8 s
+        public int maxCallsPerSession = 600;
         public float temperature = 1.0f;
         public int maxOutputTokens = 200;          // headroom for thinking tokens; reply itself is <= 20 words
 
@@ -42,7 +42,9 @@ namespace Edge.Narration
         [NonSerialized] public int callsThisSession;
         [NonSerialized] public bool busy;
         [NonSerialized] float _lastCall = -999f;
-        [NonSerialized] float _backoffUntil;
+        [NonSerialized] float _backoffUntil, _ttsBackoffUntil;
+        /// The TTS model hit its daily quota (free tier: 10 a day): no more TTS calls this session.
+        [NonSerialized] public bool ttsOutForSession;
         [NonSerialized] float[] _minuteWindow = new float[32];
         [NonSerialized] int _mwHead;
         [NonSerialized] string _sessionModel;      // text model resolved once per session
@@ -148,6 +150,8 @@ namespace Edge.Narration
         // Returns 24 kHz mono float samples (Gemini 3.8 TTS, response_format audio/l16).
         public bool Synthesize(string text, Action<float[], int> onOk, Action<string> onError)
         {
+            if (ttsOutForSession) { onError?.Invoke("TTS daily limit reached"); return false; }
+            if (Now < _ttsBackoffUntil) { onError?.Invoke("TTS rate-limit back-off"); return false; }
             if (!CanCall(out string why, true)) { onError?.Invoke(why); return false; }
             if (string.IsNullOrEmpty(_sessionTtsModel)) _sessionTtsModel = ttsModel;
             string body =
@@ -158,10 +162,10 @@ namespace Edge.Narration
                 "\"generation_config\":{\"speech_config\":[{\"voice\":" + Q(ttsVoice) + "}]}}";
             Post($"{Base}/interactions", body, ttsTimeoutSeconds, (code, resp) =>
             {
-                if (code != 200) { Fail(code, resp, onError); return; }
+                if (code != 200) { Fail(code, resp, onError, tts: true); return; }
                 string b64 = null;
                 foreach (string s in MiniJson.AllStrings(resp, "data")) b64 = s; // last audio block
-                if (string.IsNullOrEmpty(b64)) { Fail(code, "no audio in response", onError); return; }
+                if (string.IsNullOrEmpty(b64)) { Fail(code, "no audio in response", onError, tts: true); return; }
                 try
                 {
                     byte[] pcm = Convert.FromBase64String(b64);
@@ -172,7 +176,7 @@ namespace Edge.Narration
                     lastError = "";
                     onOk?.Invoke(f, 24000);
                 }
-                catch (Exception e) { Fail(code, "decode: " + e.Message, onError); }
+                catch (Exception e) { Fail(code, "decode: " + e.Message, onError, tts: true); }
             });
             return true;
         }
@@ -204,10 +208,20 @@ namespace Edge.Narration
             };
         }
 
-        void Fail(long code, string text, Action<string> onError)
+        void Fail(long code, string text, Action<string> onError, bool tts = false)
         {
-            if (code == 429) _backoffUntil = Now + 60f;
             string msg = MiniJson.FirstString(text ?? "", "message");
+            // TTS and text have separate quotas: a TTS 429 must not silence the text model
+            if (code == 429 && tts)
+            {
+                _ttsBackoffUntil = Now + 60f;
+                if (!ttsOutForSession && (msg ?? "").IndexOf("per day", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    ttsOutForSession = true;
+                    Debug.LogWarning("[EDGE Narration] Gemini TTS daily limit reached: no more TTS calls this session");
+                }
+            }
+            else if (code == 429) _backoffUntil = Now + 60f;
             lastError = $"HTTP {code}: {(string.IsNullOrEmpty(msg) ? Trunc(text, 160) : msg)}";
             onError?.Invoke(lastError);
         }

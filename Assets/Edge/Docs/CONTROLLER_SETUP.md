@@ -34,7 +34,9 @@ incoming connections (prompt on first Play). Check packets reach the Mac:
 ## 4. Calibrate (in Play mode)
 Hold the tag in its neutral "flying level" pose → press **Z** (or long-press D2 on the tag, or
 gamepad Select). It also auto-zeroes on the first packet. (**C** is the camera toggle.)
-HUD line: `TAG OK 100 Hz drops 0 steer +0.00 climb +0.00 [Z] zero tag light 12 lx` (lux is display-only; the light budget is unchanged). `TAG paused` = press D2.
+HUD line: `TAG OK 100 Hz drops 0 steer +0.00 climb +0.00 [Z] zero tag light 12 lx`. `TAG paused` = press D2.
+
+**Real light.** `EdgeLightEffects` learns the room's normal light from `LUX`. A jump above the threshold (at least 150 lx and 3× normal) is a phone flash; light that stays up longer than 0.5 s is a held torch: torch glare, pulsing buzz and, for the light-averse bat, the same budget/energy drain as standing under a lamp (`realGameLux` sets how hard). Normal light is not re-learned while a torch is held, for up to 30 s. Press **H** in the feeding game: the debug line shows `lux 1.00 (real 1.00)`. The light-tolerant bat ignores it.
 
 ## 5. Axis remap (mounting orientation unknown)
 Select the Bat → `EdgeTagInput` (added automatically at Play; add it to the Bat to keep settings):
@@ -47,6 +49,8 @@ Camera: `CameraToggle` → Position/Rotation Sharpness, Turn Look Ahead.
 
 ## 6. Test without hardware
 `python3 "Final Project/tools/fake_tag.py"` (sine weave) or `--mode keys`, `--drop 0.2`, `--stall 3`, `--legacy`.
+
+Real light only: `python3 Firmware/tools/fake_light.py` (type `f` + Enter for a flash, `t` for a torch on/off) or `--scenario demo`. It sends `LUX` only, so the keyboard still flies the bat; `--ori` adds a level tag stream.
 
 ## 7. Troubleshooting
 | Symptom | Fix |

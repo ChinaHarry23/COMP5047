@@ -34,7 +34,7 @@ namespace Edge.Feeding
         [Tooltip("Calls pause this long after a catch (s)")] public float postCatchPause = 0.35f;
 
         [Header("Echolocation ping")]
-        [Range(0f, 1f)] public float pingVolume = 0.1f;
+        [Range(0f, 1f)] public float pingVolume = 0.3f;
 
         public int Streak { get; private set; }
 

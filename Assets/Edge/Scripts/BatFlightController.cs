@@ -35,8 +35,10 @@ namespace Edge
         [Tooltip("Bank smoothing when flying the tag (s); tag is already One-Euro filtered")] public float tagBankResponse = 0.06f;
         [Tooltip("Bank smoothing on keyboard/gamepad (s); ramps the digital keys")] public float keyBankResponse = 0.16f;
         [Tooltip("Max roll rate (deg/s)")] public float maxRollRate = 240f;
-        [Tooltip("Scales the physical coordinated-turn rate g*tan(bank)/v")] public float turnGain = 0.75f;
-        [Tooltip("Yaw-rate cap (deg/s)")] public float maxYawRate = 100f;
+        [Tooltip("Scales the physical coordinated-turn rate g*tan(bank)/v")] public float turnGain = 1.3f;
+        [Tooltip("Yaw-rate cap (deg/s)")] public float maxYawRate = 140f;
+        [Tooltip("Speed at full bank as a fraction of cruise: bats slow into a hard turn, which tightens it")]
+        [Range(0.4f, 1f)] public float hardTurnSpeed = 0.8f;
 
         [Header("Climb")]
         public float maxPitchDeg = 30f;
@@ -349,7 +351,9 @@ namespace Edge
             _pitch = Mathf.SmoothDamp(_pitch, climb * maxPitchDeg, ref _pitchVel, pitchResponse, Mathf.Infinity, dt);
             Vector3 fwd = Quaternion.Euler(0f, _heading, 0f) * Vector3.forward;
             float vy = Mathf.Sin(_pitch * Mathf.Deg2Rad) * climbGain;
-            float spd = cruiseSpeed * speedMultiplier * folSpeed * Mathf.Lerp(1f, stunSpeedMultiplier, stunK);
+            float turnK = Mathf.Abs(_bank) / Mathf.Max(1f, maxBankDeg);
+            float spd = cruiseSpeed * speedMultiplier * folSpeed * Mathf.Lerp(1f, stunSpeedMultiplier, stunK)
+                        * Mathf.Lerp(1f, hardTurnSpeed, turnK);
             Vector3 pos = transform.position + (fwd + Vector3.up * vy) * (spd * dt) + _bounce * dt;
             _bounce *= Mathf.Exp(-6f * dt);
             pos.y = Mathf.Clamp(pos.y, minAltitude, maxAltitude);

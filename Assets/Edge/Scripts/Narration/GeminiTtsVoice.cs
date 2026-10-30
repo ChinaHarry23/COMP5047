@@ -29,13 +29,18 @@ namespace Edge.Narration
             this.fallbackToOtherVoice = fallbackToOtherVoice;
         }
 
+        string CacheKey(string text) => _client.ttsVoice + "|" + text;
+
         public bool IsSpeaking => _pending || (_src && _src.isPlaying) || _fallback.IsSpeaking;
 
         public void Speak(string text)
         {
             Stop();
             if (string.IsNullOrWhiteSpace(text)) return;
-            if (cacheAudio && _cache.TryGetValue(text, out var cached) && cached) { Play(cached, false); return; }
+            // keyed by voice too: each bat has its own voice, and the same words must not replay in the other one
+            if (cacheAudio && _cache.TryGetValue(CacheKey(text), out var cached) && cached) { Play(cached, false); return; }
+            // out of TTS quota for today: straight to the fallback voice, no doomed request and retry
+            if (_client.ttsOutForSession) { if (fallbackToOtherVoice) _fallback.Speak(text); return; }
             int tok = ++_token;
             _pending = true;
             Attempt(text, tok, 0);
@@ -50,12 +55,12 @@ namespace Edge.Narration
                 if (!_src) return;
                 var clip = AudioClip.Create("EDGE narration", samples.Length, 1, rate, false);
                 clip.SetData(samples, 0);
-                if (cacheAudio) _cache[text] = clip;
+                if (cacheAudio) _cache[CacheKey(text)] = clip;
                 Play(clip, !cacheAudio);
             }, err =>
             {
                 if (tok != _token) return;
-                if (attempt == 0)
+                if (attempt == 0 && !_client.ttsOutForSession)
                 {
                     Debug.LogWarning($"[EDGE Narration] Gemini TTS failed ({err}); retrying once in {retryDelaySeconds:0.#} s (voice {_client.ttsVoice})");
                     RetryLater(text, tok);
