@@ -107,6 +107,10 @@ namespace Edge.Feeding
         /// Moths living in the dark right now (alive or about to respawn there).
         public int DarkInsects { get { int n = 0; foreach (var s in _ins) if (s.lamp < 0) n++; return n; } }
         public EdgeFeedingPreset Preset => variant == Variant.LightTolerant ? tolerantPreset : aversePreset;
+        /// Both bats have finished a round this visit, so the two-bat comparison is complete.
+        public bool BothBatsPlayed => _results[0].played && _results[1].played;
+        /// Moths eaten by that bat in its last round this visit (0 if it has not played).
+        public int MothsEaten(Variant v) => _results[(int)v].moths;
 
         struct Insect
         {

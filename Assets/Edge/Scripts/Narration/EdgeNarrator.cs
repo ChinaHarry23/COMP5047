@@ -15,14 +15,15 @@ namespace Edge.Narration
     // It never writes to the input path (UdpLink / BatFlightController).
     // With an EdgeFeedingGame in the scene it narrates the game instead: each bat has its own comic
     // persona (prompt, offline lines and voice), the cocky light-tolerant bat and the anxious
-    // light-shy one, reacting to rounds, moths, energy, night vision and light (real or in game).
+    // light-shy one, reacting to moths, energy, night vision and light (real or in game). A round's
+    // end silences it; once both bats have played, a scripted explanation closes the visit.
     public class EdgeNarrator : MonoBehaviour
     {
         public enum Trigger
         {
             None, Start, EnterLamp, LeaveLamp, Budget75, Budget50, Budget25, Budget10,
             BudgetSpent, WeatherChange, DarkStretch, CrossPath, External, Manual,
-            MothEaten, EnergyLow, NightVisionLow, RoundEnd   // feeding game (its intro is a pre-recorded clip)
+            MothEaten, EnergyLow, NightVisionLow   // feeding game (intro and end-of-visit lines are scripted)
         }
 
         [Header("Scene refs (auto-found if empty)")]
@@ -59,6 +60,24 @@ namespace Edge.Narration
         public AudioClip introClipAverse;
         public string introLineTolerant = "Ohhh yeahhh! Lights on, moths out. Ready to rumble!";
         public string introLineAverse = "Um... it's really bright out there. Do I have to?";
+
+        [Header("End of visit (after both bats): scripted explanation in a narrator voice")]
+        [Tooltip("Used when the light-tolerant bat ate more (the usual result)")]
+        [TextArea(3, 6)] public string summaryLine =
+            "Same night, same moths. The streetlights gave the light-loving bat a feast. But the long-eared bat " +
+            "can't stand the light, so he couldn't hunt where the moths had gathered. He ate less, and tonight " +
+            "he'll go to sleep hungry. Keep some of the night dark, and both bats get their share.";
+        [Tooltip("Used when the long-eared bat ate as many or more")]
+        [TextArea(3, 6)] public string summaryLineAverseWon =
+            "This time the long-eared bat found enough moths in the dark. But on most lit nights, streetlights " +
+            "pull the moths out of the bush, and bats like him go to sleep hungry. Keep some of the night dark, " +
+            "and both bats get their share.";
+        [Tooltip("Optional recordings of the two lines above; without them the text is spoken by the voice below")]
+        public AudioClip summaryClip;
+        public AudioClip summaryClipAverseWon;
+        public string macVoiceSummary = "Daniel";
+        [Tooltip("Gemini prebuilt voice, e.g. Charon = informative, Sulafat = warm")] public string ttsVoiceSummary = "Charon";
+        public string ttsStyleSummary = "calm, warm nature documentary narrator; clear and unhurried";
 
         [Header("AI")]
         public bool useGemini = true;
@@ -100,8 +119,7 @@ namespace Edge.Narration
         Trigger _pending = Trigger.None;
         float _pendingAt;
         string _externalDetail = "";
-        string _roundResult = "";
-        AudioSource _introSrc;
+        AudioSource _clipSrc;
         bool _gameInLight;
         int _requestToken;
         Snapshot _snap;
@@ -222,7 +240,6 @@ namespace Edge.Narration
         void OnRoundStarted(EdgeFeedingGame.Variant v)
         {
             _thresholdsHit = 0;
-            _roundResult = "";
             _gameInLight = false;
             _darkSince = _lastDarkLine = Time.time;
             ApplyPersona(v);
@@ -238,13 +255,18 @@ namespace Edge.Narration
             _pending = Trigger.None;
             _requestToken++;   // a live line still being written is dropped
             if (!clip) { Deliver(line, "intro"); return; }
-            _voice?.Stop();
-            if (!_introSrc) { _introSrc = gameObject.AddComponent<AudioSource>(); _introSrc.playOnAwake = false; _introSrc.spatialBlend = 0f; }
-            _introSrc.Stop();
-            _introSrc.clip = clip;
-            _introSrc.Play();
+            PlayClip(clip, line, "intro clip");
             if (game) game.HoldIntroAtLeast(clip.length + 0.3f);
-            Deliver(line, "intro clip", speak: false);
+        }
+
+        void PlayClip(AudioClip clip, string line, string source)
+        {
+            _voice?.Stop();
+            if (!_clipSrc) { _clipSrc = gameObject.AddComponent<AudioSource>(); _clipSrc.playOnAwake = false; _clipSrc.spatialBlend = 0f; }
+            _clipSrc.Stop();
+            _clipSrc.clip = clip;
+            _clipSrc.Play();
+            Deliver(line, source, speak: false, seconds: clip.length + 1f);
         }
 
         void OnInsectEaten(int score)
@@ -254,9 +276,29 @@ namespace Edge.Narration
 
         void OnRoundEnded(EdgeFeedingGame.Variant v, int score, string reason)
         {
-            _roundResult = reason ?? "";
-            Raise(Trigger.RoundEnd);
+            // the round is over: drop what is queued, still being written, or still speaking
+            _pending = Trigger.None;
+            _requestToken++;
+            _voice?.Stop();
+            if (_clipSrc) _clipSrc.Stop();
+            if (game.BothBatsPlayed) PlaySummary();
         }
+
+        // Scripted, so the closing message is always the same and always true to the two results.
+        void PlaySummary()
+        {
+            bool averseWon = game.MothsEaten(EdgeFeedingGame.Variant.LightAverse) >= game.MothsEaten(EdgeFeedingGame.Variant.LightTolerant);
+            string line = averseWon ? summaryLineAverseWon : summaryLine;
+            var clip = averseWon ? summaryClipAverseWon : summaryClip;
+            if (clip) { PlayClip(clip, line, "summary clip"); return; }
+            macVoice = macVoiceSummary;
+            gemini.ttsVoice = ttsVoiceSummary;
+            gemini.ttsStyle = ttsStyleSummary;
+            BuildVoice();   // the next round start switches back to that bat's voice
+            Deliver(line, "summary", seconds: WordCount(line) / 2.5f + 2f);
+        }
+
+        static int WordCount(string s) => s.Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries).Length;
 
         bool Tolerant => game && game.variant == EdgeFeedingGame.Variant.LightTolerant;
 
@@ -413,7 +455,6 @@ namespace Edge.Narration
             switch (t)
             {
                 case Trigger.BudgetSpent: return 100;
-                case Trigger.RoundEnd: return 95;
                 case Trigger.EnergyLow: return 85;
                 case Trigger.NightVisionLow: return 80;
                 case Trigger.Budget10: return 90;
@@ -433,8 +474,7 @@ namespace Edge.Narration
         }
 
         static bool Sticky(Trigger t) => t == Trigger.BudgetSpent || t == Trigger.Budget10 || t == Trigger.Budget25 ||
-                                         t == Trigger.Budget50 || t == Trigger.Budget75 || t == Trigger.WeatherChange ||
-                                         t == Trigger.RoundEnd;
+                                         t == Trigger.Budget50 || t == Trigger.Budget75 || t == Trigger.WeatherChange;
 
         void Raise(Trigger t)
         {
@@ -450,11 +490,11 @@ namespace Edge.Narration
             if (_pending == Trigger.None) return;
             float now = Time.time;
             // the feeding game only talks during a round, plus its round-over line
-            if (game && game.CurrentState != EdgeFeedingGame.State.Playing && _pending != Trigger.RoundEnd) { _pending = Trigger.None; return; }
+            if (game && game.CurrentState != EdgeFeedingGame.State.Playing) { _pending = Trigger.None; return; }   // talks only during a round
             if (game && game.InIntro) return;   // the intro clip has the floor
-            if (_introSrc && _introSrc.isPlaying) return;
+            if (_clipSrc && _clipSrc.isPlaying) return;
             if (!Sticky(_pending) && now - _pendingAt > pendingLifetime) { _pending = Trigger.None; return; }
-            bool urgent = _pending == Trigger.BudgetSpent || _pending == Trigger.Budget10 || _pending == Trigger.RoundEnd;
+            bool urgent = _pending == Trigger.BudgetSpent || _pending == Trigger.Budget10;
             float cd = urgent ? urgentCooldownSeconds : cooldownSeconds;
             if (voiceKind == NarrationVoiceKind.GeminiTts && useGemini) cd = Mathf.Max(cd, ttsMinLineInterval);
             if (now - _lastSpoke < cd) return;
@@ -497,16 +537,17 @@ namespace Edge.Narration
 
         string WhyNot() { gemini.CanCall(out string why); return why ?? "?"; }
 
-        void Deliver(string line, string source, bool speak = true)
+        void Deliver(string line, string source, bool speak = true, float seconds = -1f)
         {
             lastLine = line;
             lastSource = source;
             _lastSpoke = Time.time;
             _history.Add(line);
             while (_history.Count > Mathf.Max(1, historySize)) _history.RemoveAt(0);
+            float show = seconds > 0f ? seconds : subtitleSeconds;
             _subtitle = line;
-            _subtitleUntil = Time.time + subtitleSeconds;
-            if (showSubtitle && Edge.UI.EdgeUiView.Instance) Edge.UI.EdgeUiView.Instance.ShowSubtitle(line, subtitleSeconds);
+            _subtitleUntil = Time.time + show;
+            if (showSubtitle && Edge.UI.EdgeUiView.Instance) Edge.UI.EdgeUiView.Instance.ShowSubtitle(line, show);
             Debug.Log($"[EDGE Narration] [{source}] {line}");
             if (speak) _voice?.Speak(line);
         }
@@ -545,7 +586,6 @@ namespace Edge.Narration
             var sb = new StringBuilder(200);
             sb.Append("{\"event\":\"").Append(EventName(t)).Append('"');
             if (t == Trigger.External && _externalDetail.Length > 0) sb.Append(",\"detail\":").Append(GeminiClient.Q(_externalDetail));
-            if (t == Trigger.RoundEnd && _roundResult.Length > 0) sb.Append(",\"result\":").Append(GeminiClient.Q(_roundResult));
             sb.Append(",\"bat\":\"").Append(Tolerant ? "Gould's wattled bat (light-tolerant)" : "Gould's long-eared bat (light-shy)").Append('"');
             sb.Append(",\"moths_eaten\":").Append(s.moths);
             sb.Append(",\"energy_pct\":").Append(s.energyPct);
@@ -589,7 +629,6 @@ namespace Edge.Narration
                 case Trigger.MothEaten: return "caught_a_moth";
                 case Trigger.EnergyLow: return "energy_running_low";
                 case Trigger.NightVisionLow: return "night_vision_almost_gone";
-                case Trigger.RoundEnd: return "round_over";
                 default: return "manual";
             }
         }
@@ -665,9 +704,6 @@ namespace Edge.Narration
             { Trigger.External, new[] {
                 "A spotlight from the crowd? I knew I was famous.",
                 "Real lights, real fans. I was born for this." } },
-            { Trigger.RoundEnd, new[] {
-                "{moths} moths! Streetlights are the best thing that ever happened to me.",
-                "Party's over. {moths} moths eaten. Same time tomorrow, lamps?" } },
         };
 
         static readonly Dictionary<Trigger, string[]> AverseTemplates = new Dictionary<Trigger, string[]>
@@ -695,9 +731,6 @@ namespace Edge.Narration
             { Trigger.External, new[] {
                 "Who's shining that at me?! Put it down, I'm trying to eat!",
                 "A flash?! My eyes! Why would you do that?" } },
-            { Trigger.RoundEnd, new[] {
-                "{moths} moths. The lamps got the rest. Typical.",
-                "Night over. Same moths, same lamps, much less dinner for me." } },
         };
 
         string OfflineLine(Trigger t)
